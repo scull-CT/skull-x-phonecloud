@@ -31,11 +31,11 @@ function preview(value) {
   return text.length > 110 ? text.slice(0, 107) + '…' : text;
 }
 
-export function databaseTree({ api, base, collection, rules, notice }) {
+export function databaseTree({ api, base, collection, notice }) {
   const panel = element('section', undefined, 'panel database-tree');
   const header = element('div', undefined, 'tree-header');
   const title = element('div');
-  title.append(element('h2', 'Data'), element('code', '/' + collection));
+  title.append(element('h3', collection));
   const status = element('span', 'Connecting…', 'tree-status');
   status.setAttribute('role', 'status');
   header.append(title, status);
@@ -230,7 +230,7 @@ export function databaseTree({ api, base, collection, rules, notice }) {
   }
   const addDocument = button('Add document', () => edit('create', null, [], {}));
   addDocument.className = 'primary';
-  toolbar.append(addDocument, button('Refresh data', refresh), element('span', 'Read: ' + rules.read + ' · Write: ' + rules.write));
+  toolbar.append(addDocument, button('Refresh data', refresh));
   function turnPage(direction) {
     offset = Math.max(0, offset + direction * pageSize);
     previous.disabled = next.disabled = true;

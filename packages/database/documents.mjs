@@ -12,6 +12,9 @@ const idPattern = /^[a-f0-9-]{36}$/;
 const fieldTypes = { string: 'text', number: ['integer', 'real'], boolean: ['true', 'false'] };
 const fieldPath = name => `'$."${name}"'`;
 const parseRecord = row => ({ id: row.id, data: JSON.parse(row.data), updated: row.updated });
+const privateRules = { '.read': false, '.write': false };
+const legacyRules = { '.read': true, '.write': 'auth' };
+const clientRules = database => database.rules ?? legacyRules;
 
 export function documentService(store) {
   const dir = join(store.home, 'databases');
@@ -35,6 +38,7 @@ export function documentService(store) {
       CREATE TABLE IF NOT EXISTS keys (hash TEXT PRIMARY KEY, label TEXT NOT NULL, permission TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS users (name TEXT PRIMARY KEY, password TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS tokens (hash TEXT PRIMARY KEY, name TEXT NOT NULL, expires INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS usage (day TEXT PRIMARY KEY, requests INTEGER NOT NULL, rejected INTEGER NOT NULL, writes INTEGER NOT NULL);
     `);
     connections.set(id, db);
     return db;
@@ -42,7 +46,7 @@ export function documentService(store) {
   function inspect(id) {
     const config = entry(id);
     const db = open(id);
-    return { ...config, collections: db.prepare('SELECT * FROM collections ORDER BY name').all().map(row => ({ name: row.name, ...JSON.parse(row.rules) })),
+    return { ...config, rules: clientRules(config), collections: db.prepare('SELECT * FROM collections ORDER BY name').all().map(row => ({ name: row.name, ...JSON.parse(row.rules) })),
       keys: db.prepare('SELECT label,permission FROM keys ORDER BY label').all(), users: db.prepare('SELECT name FROM users ORDER BY name').all().map(row => row.name),
       size: ['.sqlite', '.sqlite-wal'].reduce((sum, suffix) => sum + (statSync(join(dir, id + suffix), { throwIfNoEntry: false })?.size || 0), 0),
       subscribers: [...subscribers].filter(client => client.id === id).length };
@@ -55,7 +59,7 @@ export function documentService(store) {
     if (origin && (typeof origin !== 'string' || !/^https:\/\/[a-z0-9.-]+(?::\d+)?$/i.test(origin))) throw new HttpError(400, 'CORS must be a single HTTPS origin.');
     const id = randomUUID();
     open(id);
-    store.db.prepare('INSERT INTO databases VALUES (?,?,?)').run(id, name, JSON.stringify({ origin }));
+    store.db.prepare('INSERT INTO databases VALUES (?,?,?)').run(id, name, JSON.stringify({ origin, rules: privateRules }));
     store.audit('Database created ' + id);
     return inspect(id);
   }
@@ -179,6 +183,26 @@ export function documentService(store) {
     const db = open(id);
     const [section, collection, recordId] = parts;
     if (!section && req.method === 'GET') return json(res, inspect(id));
+    if (section === 'rules' && req.method === 'PUT') {
+      const input = await jsonBody(req, 4096);
+      if (Object.keys(input).length !== 1 || !input.rules || Array.isArray(input.rules) ||
+          Object.keys(input.rules).length !== 2 || ![false, true, 'auth'].includes(input.rules['.read']) ||
+          ![false, 'auth'].includes(input.rules['.write'])) {
+        throw new HttpError(400, 'Use rules with .read set to false, true or "auth", and .write set to false or "auth".');
+      }
+      const { id: databaseId, name, ...config } = entry(id);
+      store.db.prepare('UPDATE databases SET config=? WHERE id=?').run(JSON.stringify({ ...config, rules: input.rules }), databaseId);
+      for (const client of subscribers) if (client.id === id) client.res.end();
+      store.audit('Database access rules changed ' + id);
+      return json(res, { rules: input.rules });
+    }
+    if (section === 'usage' && req.method === 'GET') {
+      const cutoff = new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10);
+      const { size, subscribers: active } = inspect(id);
+      const count = table => db.prepare('SELECT count(*) AS total FROM ' + table).get().total;
+      return json(res, { size, active, collections: count('collections'), documents: count('records'), keys: count('keys'), users: count('users'),
+        daily: db.prepare('SELECT * FROM usage WHERE day>=? ORDER BY day').all(cutoff) });
+    }
     if (section === 'collections' && req.method === 'POST') {
       define(db, await jsonBody(req));
       store.audit('Collection created ' + id);
@@ -270,6 +294,17 @@ export function documentService(store) {
     publicLimit(id);
     const config = entry(id);
     const db = open(id);
+    res.on('finish', () => {
+      if (req.method === 'OPTIONS') return;
+      const day = new Date().toISOString().slice(0, 10);
+      try {
+        db.prepare(`INSERT INTO usage VALUES (?,1,?,?) ON CONFLICT(day) DO UPDATE SET
+          requests=requests+1,rejected=rejected+excluded.rejected,writes=writes+excluded.writes`)
+          .run(day, Number(res.statusCode >= 400), Number(parts[0] === 'records' && req.method !== 'GET' && res.statusCode < 300));
+        const cutoff = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+        db.prepare('DELETE FROM usage WHERE day<?').run(cutoff);
+      } catch { /* Usage tracking does not affect database requests. */ }
+    });
     if (req.headers.origin && config.origin === req.headers.origin) {
       res.setHeader('Access-Control-Allow-Origin', config.origin);
       res.setHeader('Vary', 'Origin');
@@ -294,6 +329,7 @@ export function documentService(store) {
       return json(res, { token: credential, expires });
     }
     let capability = null;
+    let hasApiKey = false;
     let expires;
     if (req.headers.authorization) {
       const raw = req.headers.authorization.match(/^Bearer ([\w-]{43})$/)?.[1];
@@ -302,10 +338,17 @@ export function documentService(store) {
       const key = db.prepare('SELECT permission FROM keys WHERE hash=?').get(hash);
       const user = db.prepare('SELECT expires FROM tokens WHERE hash=? AND expires>?').get(hash, Date.now());
       capability = key?.permission || (user && 'user');
+      hasApiKey = Boolean(key);
       expires = user?.expires;
       if (!capability) throw new HttpError(401, 'Invalid bearer credential.');
     }
+    function allowDatabase(reading) {
+      if (hasApiKey) return;
+      const rule = clientRules(entry(id))[reading ? '.read' : '.write'];
+      if (rule === false || rule === 'auth' && !capability) throw new HttpError(403, 'Access denied by database rules.');
+    }
     if (section === 'events' && req.method === 'GET') {
+      allowDatabase(true);
       const rules = rulesFor(db, collection);
       if (!capability && rules.read !== 'public' || capability === 'user' && rules.read === 'private') throw new HttpError(403, 'Collection access denied.');
       return stream(id, collection, res, expires);
@@ -313,6 +356,7 @@ export function documentService(store) {
     if (section === 'records') {
       if (!capability && req.method !== 'GET') throw new HttpError(403, 'Authentication required.');
       const input = ['POST', 'PUT'].includes(req.method) ? await jsonBody(req, 65536) : null;
+      allowDatabase(req.method === 'GET');
       return json(res, records(id, collection, req.method, recordId, input, params, capability));
     }
     throw new HttpError(404, 'Database endpoint not found.');

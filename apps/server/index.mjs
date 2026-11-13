@@ -178,6 +178,7 @@ export async function start({ home = process.env.PHONECLOUD_HOME || join(homedir
       if (area === 'databases') {
         if (!id && method === 'GET') return json(res, documents.list());
         if (!id && method === 'POST') return json(res, documents.create(await jsonBody(req)), 201);
+        if (id && operation === 'domain' && method === 'POST') return await network.databaseDomain(id, req, res);
         if (id) return await documents.admin(id, [operation, ...parts], req, res, url.searchParams, () => Boolean(session(req)));
       }
       if (area === 'networking') return await network.admin([id, operation, ...parts], req, res, url.searchParams);

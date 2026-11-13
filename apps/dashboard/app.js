@@ -69,7 +69,10 @@ async function refreshSession() {
   session = await api('session');
   await refreshView();
 }
-const view = () => [...views, ...cloudViews].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'overview';
+const view = () => {
+  const section = location.hash.slice(1).split('/')[0];
+  return [...views, ...cloudViews].includes(section) ? section : 'overview';
+};
 $('diagnostics').onclick = async () => {
   try { download('phonecloud-diagnostics.json', JSON.stringify(await api('diagnostics'), null, 2)); }
   catch (error) { $('notice').textContent = error.message; }
@@ -190,7 +193,7 @@ async function refreshView() {
     $('access-form').hidden = false;
     return;
   }
-  for (const anchor of document.querySelectorAll('nav a')) {
+  for (const anchor of $('sidebar').querySelectorAll('nav a')) {
     if (anchor.hash === '#' + active) anchor.setAttribute('aria-current', 'page');
     else anchor.removeAttribute('aria-current');
   }

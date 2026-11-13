@@ -27,7 +27,7 @@ Use Node.js 24 or newer. Run `npm test` and `npm start`. The setup code is in `~
 1. In **Projects**, create a Node.js project. Set the health path to `/healthz`.
 2. In **Storage**, upload [examples/node/server.mjs](examples/node/server.mjs) to the source area as `server.mjs`.
 3. In **Projects**, choose **Deploy**. Refresh **Deployments** until the release is ready, then open the application from **Projects**. For GitHub import, enter an HTTPS repository URL and branch instead of uploading the source.
-4. In **Databases**, create a database and collection. Add a document, expand its JSON tree, and edit individual keys or array items. The tree updates as changes are committed. Open **Realtime** for the event log. See the [database API](docs/database-api.md) for a second-device client.
+4. In **Databases**, choose **New database** or open an existing one. **Data** shows the live JSON tree. **Rules** manages client access, **Usage** shows request counts and storage, **API** issues keys, and **Custom domain** maps an HTTPS hostname to the database. New databases require a scoped API key for client reads and writes. See the [database API](docs/database-api.md) for examples.
 5. For public HTTPS, follow the [Cloudflare setup](docs/operations.md). Keep the dashboard on loopback.
 6. In **Backups**, create an encrypted snapshot. Download it off the phone and keep its passphrase separately. See [restore instructions](docs/operations.md).
 

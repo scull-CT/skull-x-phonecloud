@@ -96,11 +96,12 @@ export function tunnels(store, projects, documents, monitor, port = 8766, lanPor
     else documents.inspect(id);
     return value;
   }
-  async function domain(input) {
+  async function domain(input, expectedTarget) {
     const hostname = typeof input.hostname === 'string' ? input.hostname.trim().toLowerCase() : '';
     if (!hostnamePattern.test(hostname) || isIP(hostname)) throw new HttpError(400, 'Enter a valid custom hostname.');
     const previous = domainMap();
     const existing = previous[hostname];
+    if (expectedTarget && existing && existing.target !== expectedTarget) throw new HttpError(409, 'This hostname belongs to another project or database.');
     const cloud = credentials();
     if (!cloud.id) throw new HttpError(409, 'Connect a named Cloudflare tunnel first.');
     const configPath = cfPath(cloud) + '/configurations';
@@ -230,6 +231,16 @@ export function tunnels(store, projects, documents, monitor, port = 8766, lanPor
     config,
     async removeSharedProject(id) {
       if (lan.config().project === id) await lan.set(null);
+    },
+    async databaseDomain(id, req, res) {
+      documents.inspect(id);
+      const input = await jsonBody(req, 4096);
+      const target = 'database:' + id;
+      if (changing) throw new HttpError(409, 'A networking operation is already running.');
+      changing = true;
+      try { await domain({ ...input, target }, target); }
+      finally { changing = false; }
+      return json(res, config());
     },
     async listen() {
       await new Promise((resolve, reject) => {

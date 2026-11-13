@@ -52,3 +52,21 @@ textarea{width:100%;resize:vertical;min-height:90px;padding:.7rem;font:inherit;c
 .tree-editor textarea{min-height:7rem;font-family:monospace}
 .tree-warning{color:var(--danger)}
 @media(max-width:520px){.tree-children{margin-inline-start:.25rem;padding-inline-start:.2rem}.tree-actions{flex-basis:100%;margin-inline-start:0}.tree-key{max-width:calc(100% - 3rem)}}
+.database-back{display:inline-block;margin-bottom:.65rem;color:var(--accent);font-size:.85rem}
+.database-tabs{display:flex;gap:.35rem;overflow:auto;border-bottom:1px solid var(--edge);padding:.2rem .15rem .5rem}
+.database-tabs a{display:inline-block}
+.database-list{list-style:none;margin:0;padding:0}
+.database-list a{display:flex;justify-content:space-between;gap:.7rem;padding:.8rem .6rem;border-bottom:1px solid var(--edge);overflow-wrap:anywhere}
+.database-list a:hover{background:var(--panel-hover);color:var(--accent)}
+.database-create>summary{width:fit-content;color:var(--ink);background:var(--accent);border-radius:8px;padding:.45rem .75rem}
+.database-root{display:block;margin:.35rem 0;color:var(--muted)}
+.database-branches{display:grid;gap:.65rem;margin-top:.8rem}
+.database-branch{border:1px solid var(--edge);border-radius:9px;padding:.65rem}
+.database-branch>.database-tree{margin:.6rem 0;background:var(--bg)}
+.database-tree h3{margin:0}
+.database-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,125px),1fr));gap:.5rem;margin:1rem 0}
+.database-stats>div{padding:.65rem;border:1px solid var(--edge);border-radius:8px}
+.database-stats strong{font-size:1.3rem}
+.database-usage{width:100%;border-collapse:collapse;font-size:.85rem}
+.database-usage caption{text-align:left;color:var(--muted);padding:.5rem 0}
+.database-usage th,.database-usage td{padding:.4rem .25rem;border-bottom:1px solid var(--edge);text-align:left}

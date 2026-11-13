@@ -14,6 +14,9 @@ const descriptions = {
   backups: 'Create, verify and download encrypted snapshots.'
 };
 const selection = {};
+const openBranches = new Map();
+const databaseTabs = [['data', 'Data'], ['rules', 'Rules'], ['usage', 'Usage'], ['api', 'API'], ['domain', 'Custom domain']];
+const databaseHref = (id, tab = 'data') => '#databases/' + id + '/' + tab;
 let stream;
 let generation = 0;
 const pretty = value => JSON.stringify(value, null, 2);
@@ -212,55 +215,148 @@ export async function renderCloud(view, api, notice) {
       }
       return;
     }
-    if (['databases', 'realtime'].includes(view)) {
+    if (view === 'databases') {
       const items = await api('databases');
-      const selector = choose('Database', rows(items), 'database');
-      const item = items.find(candidate => candidate.id === selection.database);
-      if (view === 'databases') {
-        const create = html('details');
-        create.open = !item;
-        create.append(html('summary', 'Create database'), form('Create database', [field('Name', input('name')), field('Optional HTTPS CORS origin', input('origin', '', 'url'))], async values => {
-          selection.database = (await api('databases', values)).id; await reload();
-        }));
+      if (run !== generation) return;
+      const [, id, requestedTab] = location.hash.slice(1).split('/');
+      const item = items.find(candidate => candidate.id === id);
+      if (!item) {
+        const create = html('details', null, { class: 'database-create' });
+        create.append(html('summary', 'New database'), form('Create database', [
+          field('Database name', input('name')), field('Optional HTTPS CORS origin', input('origin', '', 'url'))
+        ], async values => { location.hash = databaseHref((await api('databases', values)).id); }));
         add(panel(create));
+        if (!items.length) return add(panel(note('No databases yet. Create one to start storing live JSON data.')));
+        const listing = html('ul', null, { class: 'database-list' });
+        for (const item of items) {
+          const row = html('li');
+          const open = html('a', null, { href: databaseHref(item.id) });
+          open.append(html('strong', item.name), html('span', '›', { 'aria-hidden': 'true' }));
+          row.append(open);
+          listing.append(row);
+        }
+        return add(panel(listing));
       }
-      if (!item) return add(panel(note('Create a database to add collections and subscribe to changes.')));
       const base = 'databases/' + item.id;
       const database = await api(base);
-      const collectionSelect = choose('Collection', database.collections.map(collection => [collection.name, collection.name]), 'collection');
-      const collection = selection.collection;
-      add(panel(selector, collectionSelect, note(database.size.toLocaleString() + ' bytes · ' + database.subscribers + ' connected subscribers')));
-      if (view === 'realtime') {
-        if (!collection) return add(panel(note('Add a collection to subscribe.')));
-        const output = show('Waiting for changes…');
-        const status = note('Connecting…');
-        const url = '/api/' + base + '/events/' + collection;
-        if (run !== generation) return;
-        stream = new EventSource(url);
-        stream.onopen = () => { status.textContent = 'Connected'; };
-        stream.onerror = () => { status.textContent = 'Reconnecting…'; };
-        const events = [];
-        stream.addEventListener('change', event => {
-          events.unshift(date(Date.now()) + '\n' + pretty(JSON.parse(event.data)));
-          if (events.length > 25) events.pop();
-          output.textContent = events.join('\n\n');
-        });
-        add(panel(status, output));
+      if (run !== generation) return;
+      const tab = databaseTabs.some(([key]) => key === requestedTab) ? requestedTab : 'data';
+      title.replaceChildren(html('a', '← All databases', { href: '#databases', class: 'database-back' }), html('h1', item.name));
+      const tabs = html('nav', null, { class: 'database-tabs', 'aria-label': 'Database sections' });
+      for (const [key, label] of databaseTabs) {
+        const anchor = html('a', label, { href: databaseHref(item.id, key) });
+        if (tab === key) anchor.setAttribute('aria-current', 'page');
+        tabs.append(anchor);
+      }
+      add(tabs);
+      if (tab === 'usage') {
+        const usagePanel = panel(html('h2', 'Usage'));
+        const output = html('div');
+        async function loadUsage() {
+          const usage = await api(base + '/usage');
+          if (run !== generation) return;
+          const cards = html('div', null, { class: 'database-stats' });
+          for (const [label, value] of [['Storage (bytes)', usage.size], ['Collections', usage.collections],
+            ['Documents', usage.documents], ['Live connections', usage.active], ['API keys', usage.keys], ['Database users', usage.users]]) {
+            const card = html('div');
+            card.append(html('strong', value.toLocaleString()), note(label));
+            cards.append(card);
+          }
+          const table = html('table', null, { class: 'database-usage' });
+          table.append(html('caption', 'Client API requests · last 7 days (UTC)'));
+          const head = html('thead');
+          const columns = html('tr');
+          for (const label of ['Date', 'Requests', 'Rejected', 'Writes']) columns.append(html('th', label, { scope: 'col' }));
+          head.append(columns);
+          const body = html('tbody');
+          const byDay = new Map(usage.daily.map(day => [day.day, day]));
+          for (let days = 6; days >= 0; days--) {
+            const date = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+            const day = byDay.get(date);
+            const line = html('tr');
+            for (const value of [date, day?.requests ?? 0, day?.rejected ?? 0, day?.writes ?? 0]) line.append(html('td', value));
+            body.append(line);
+          }
+          table.append(head, body);
+          output.replaceChildren(cards, table);
+        }
+        usagePanel.append(tools(button('Refresh usage', loadUsage)), output);
+        add(usagePanel);
+        await loadUsage();
         return;
       }
-      const definition = html('details');
-      definition.append(html('summary', 'Add collection'), form('Create collection', [
-        field('Collection name', input('name')), field('Read permission', select('read', opts(['private', 'user', 'public']))),
-        field('Write permission', select('write', opts(['private', 'user']))),
-        field('Optional field rules (JSON)', area('fields', '{}'))
-      ], async values => {
-        values.fields = json(values.fields, {}); await api(base + '/collections', values);
-        selection.collection = values.name; await reload();
-      }));
-      const credentials = html('details');
-      const issued = html('div');
-      credentials.append(html('summary', 'Database keys and users'),
-        note('A read or write key can access private collections. Keep write keys on trusted servers.'),
+      if (tab === 'rules') {
+        const result = note('');
+        result.setAttribute('role', 'status');
+        add(panel(html('h2', 'Database rules'),
+          note('false requires a database API key. "auth" allows signed-in database users where the collection permits it. true allows reads from public collections.'),
+          form('Publish rules', [field('Rules JSON', area('rules', pretty({ rules: database.rules })))], async values => {
+            await api(base + '/rules', JSON.parse(values.rules), 'PUT');
+            result.textContent = 'Rules published.';
+          }), result));
+        if (database.collections.length) {
+          const collectionSelect = select('collection', opts(database.collections.map(item => item.name)));
+          const read = select('read', opts(['private', 'user', 'public']));
+          const write = select('write', opts(['private', 'user']));
+          function applyPermissions() {
+            const current = database.collections.find(item => item.name === collectionSelect.value);
+            read.value = current.read;
+            write.value = current.write;
+          }
+          collectionSelect.onchange = applyPermissions;
+          applyPermissions();
+          add(panel(html('h2', 'Collection permissions'), form('Save permissions', [
+            field('Collection', collectionSelect), field('Read permission', read), field('Write permission', write)
+          ], async values => {
+            await api(base + '/collections/' + values.collection, { read: values.read, write: values.write }, 'PUT');
+            Object.assign(database.collections.find(item => item.name === values.collection), { read: values.read, write: values.write });
+            notice('Collection permissions saved.');
+          })));
+        }
+        return;
+      }
+      if (tab === 'api' || tab === 'domain') {
+        const net = await api('networking');
+        if (run !== generation) return;
+        const target = 'database:' + item.id;
+        const domains = Object.entries(net.domains).filter(([, info]) => info.target === target);
+        if (tab === 'domain') {
+          if (!net.id) return add(panel(html('h2', 'Custom domain'), note('Connect a named Cloudflare tunnel to give this database an HTTPS address.'),
+            tools(html('a', 'Open Networking', { href: '#networking' }))));
+          add(panel(html('h2', 'Add hostname'), form('Connect domain', [
+            field('Hostname', input('hostname')), field('Create Cloudflare DNS record', input('dns', 'yes', 'checkbox'))
+          ], async values => { await api(base + '/domain', values); await reload(); }),
+          note('Manual DNS target: ' + net.id + '.cfargotunnel.com')));
+          for (const [hostname] of domains) {
+            const output = html('div');
+            add(panel(html('h2', hostname), tools(
+              button('Test DNS and HTTPS', async () => output.replaceChildren(show(await api('networking/verify?host=' + encodeURIComponent(hostname))))),
+              button('Remove domain', async () => {
+                if (confirm('Remove ' + hostname + '?')) { await api(base + '/domain', { hostname, remove: true }); await reload(); }
+              })), output));
+          }
+          return;
+        }
+        const local = net.origin + '/db/' + item.id;
+        const endpoint = domains.length ? 'https://' + domains[0][0] : local;
+        const branchSelect = select('branch', opts(database.collections.map(branch => branch.name)));
+        const examples = html('div');
+        function showExamples() {
+          const branch = branchSelect.value || 'collection';
+          examples.replaceChildren(
+            note('Read documents with a database key'), show('curl -H "Authorization: Bearer YOUR_KEY" "' + endpoint + '/records/' + branch + '"'),
+            note('Write a document with a write key'), show('curl -X POST -H "Authorization: Bearer YOUR_WRITE_KEY" -H "Content-Type: application/json" -d \'{"message":"Hello"}\' "' + endpoint + '/records/' + branch + '"'),
+            note('Listen for committed changes'), show('curl -N -H "Authorization: Bearer YOUR_KEY" "' + endpoint + '/events/' + branch + '"'));
+        }
+        branchSelect.onchange = showExamples;
+        showExamples();
+        add(panel(html('h2', 'Database API'), note('Local endpoint'), show(local),
+          ...domains.map(([hostname]) => show('https://' + hostname)),
+          note('The local address is for apps running on the phone. Use a custom HTTPS domain for other devices.'),
+          ...(database.collections.length ? [field('Branch for API examples', branchSelect)] : []), examples));
+        const credentials = panel(html('h2', 'API keys and users'));
+        const issued = html('div');
+        credentials.append(note('Read keys can read private collections. Write keys can also create, edit and delete documents. Keep write keys on trusted servers.'),
         form('Create key', [field('Key label', input('label')), field('Permission', select('permission', opts(['read', 'write'])))], async values => {
           const result = await api(base + '/keys', values);
           issued.replaceChildren(note('Save this key now. It is displayed once.'), show(result.key), tools(button('Refresh credentials', reload)));
@@ -268,24 +364,49 @@ export async function renderCloud(view, api, notice) {
         tools(...database.keys.map(key => button('Revoke ' + key.label, async () => { await api(base + '/keys', { label: key.label }, 'DELETE'); await reload(); }))),
         form('Create database user', [field('Username', input('name')), field('Password', input('password', '', 'password'))], async values => { await api(base + '/users', values); await reload(); }),
         tools(...database.users.map(name => button('Remove ' + name, async () => { await api(base + '/users', { name }, 'DELETE'); await reload(); }))));
-      if (!collection) {
-        definition.open = true;
-        add(panel(definition), panel(credentials));
+        add(credentials);
         return;
       }
-      if (run !== generation) return;
-      const rules = database.collections.find(item => item.name === collection);
-      const tree = databaseTree({ api, base, collection, rules, notice });
-      stream = tree;
-      add(tree.panel);
-      const permissions = html('details');
-      permissions.append(html('summary', 'Collection permissions'),
-        note('Public allows anonymous reads. User grants access to signed-in database users. Database keys keep their assigned access.'),
-        form('Save permissions', [
-          field('Read permission', select('read', opts(['private', 'user', 'public']), rules.read)),
-          field('Write permission', select('write', opts(['private', 'user']), rules.write))
-        ], async values => { await api(base + '/collections/' + collection, values, 'PUT'); await reload(); }));
-      add(panel(definition), panel(permissions), panel(credentials));
+      const definition = html('details', null, { class: 'database-create' });
+      if (!openBranches.has(id)) openBranches.set(id, new Set());
+      const expanded = openBranches.get(id);
+      definition.append(html('summary', 'Add root branch'), form('Create branch', [
+        field('Branch name', input('name')), field('Optional field rules (JSON)', area('fields', '{}'))
+      ], async values => {
+        values.fields = json(values.fields, {}); await api(base + '/collections', values);
+        expanded.add(values.name); await reload();
+      }));
+      const root = panel(html('h2', 'Data'), html('code', '/', { class: 'database-root' }), definition);
+      const treeList = html('div', null, { class: 'database-branches' });
+      const trees = new Map();
+      stream = { close() { for (const tree of trees.values()) tree.close(); } };
+      root.append(treeList);
+      for (const { name } of database.collections) {
+        const branch = html('details', null, { class: 'database-branch' });
+        branch.append(html('summary', name));
+        branch.ontoggle = () => {
+          if (run !== generation) return;
+          if (branch.open) {
+            if (trees.has(name)) return;
+            const tree = databaseTree({ api, base, collection: name, notice });
+            trees.set(name, tree);
+            expanded.add(name);
+            branch.append(tree.panel, exchangeControls(base, name));
+          } else if (trees.has(name)) {
+            trees.get(name).close();
+            trees.delete(name);
+            expanded.delete(name);
+            branch.replaceChildren(branch.firstElementChild);
+          }
+        };
+        treeList.append(branch);
+        branch.open = expanded.has(name);
+      }
+      if (!database.collections.length) treeList.append(note('The root is empty. Add a branch to store documents.'));
+      add(root);
+      return;
+    }
+    function exchangeControls(base, collection) {
       const exchange = base + '/exchange/' + collection;
       const exchangePanel = html('details');
       exchangePanel.append(html('summary', 'Import and export'), form('Import documents', [
@@ -293,7 +414,32 @@ export async function renderCloud(view, api, notice) {
       ], async values => { await api(exchange, { rows: values.format === 'CSV' ? fromCsv(values.records) : JSON.parse(values.records) }); await reload(); }),
       tools(button('Export JSON', async () => download(collection + '.json', pretty(await api(exchange)))),
         button('Export CSV', async () => download(collection + '.csv', toCsv(await api(exchange)), 'text/csv'))));
-      add(panel(exchangePanel));
+      return exchangePanel;
+    }
+    if (view === 'realtime') {
+      const items = await api('databases');
+      const selector = choose('Database', rows(items), 'database');
+      const item = items.find(candidate => candidate.id === selection.database);
+      if (!item) return add(panel(note('Create a database to subscribe to changes.')));
+      const base = 'databases/' + item.id;
+      const database = await api(base);
+      const collectionSelect = choose('Collection', opts(database.collections.map(collection => collection.name)), 'collection');
+      const collection = selection.collection;
+      add(panel(selector, collectionSelect));
+      if (!collection) return add(panel(note('Add a branch to subscribe.')));
+      const output = show('Waiting for changes…');
+      const status = note('Connecting…');
+      if (run !== generation) return;
+      stream = new EventSource('/api/' + base + '/events/' + collection);
+      stream.onopen = () => { status.textContent = 'Connected'; };
+      stream.onerror = () => { status.textContent = 'Reconnecting…'; };
+      const events = [];
+      stream.addEventListener('change', event => {
+        events.unshift(date(Date.now()) + '\n' + pretty(JSON.parse(event.data)));
+        if (events.length > 25) events.pop();
+        output.textContent = events.join('\n\n');
+      });
+      add(panel(status, output));
       return;
     }
     if (view === 'networking' || view === 'domains') {

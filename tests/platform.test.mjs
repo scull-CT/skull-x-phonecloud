@@ -105,10 +105,39 @@ test('nested JSON edits are atomic, streamed, and protected against stale saves'
     assert.equal({}.safe, undefined);
     assert.equal((await api(f.app.publicOrigin, external, 'GET')).status, 403);
     assert.equal((await call(collection, 'PUT', { read: 'public', write: 'private' })).status, 200);
+    assert.equal((await api(f.app.publicOrigin, external, 'GET')).status, 403);
+    assert.equal((await call(base + '/rules', 'PUT', { rules: { '.read': true, '.write': true } })).status, 400);
+    assert.equal((await call(base + '/rules', 'PUT', { rules: { '.read': true, '.write': false } })).status, 200);
     assert.equal((await api(f.app.publicOrigin, external, 'GET')).status, 200);
     assert.equal((await api(f.app.publicOrigin, external, 'POST', { title: 'Denied' })).status, 403);
     assert.equal((await call(route, 'PATCH', { path: [], action: 'set', expected: safe.data.data, value: {}, updated: safe.data.updated })).status, 400);
   } finally { await reader.cancel(); }
+});
+
+test('database rules default to API key only and usage tracks client access', async t => {
+  const f = await fixture(t);
+  const call = await f.authenticate();
+  const { data: db } = await call('databases', 'POST', { name: 'Private' });
+  assert.deepEqual(db.rules, { '.read': false, '.write': false });
+  const base = 'databases/' + db.id;
+  const collection = '/db/' + db.id + '/records/items';
+  await call(base + '/collections', 'POST', { name: 'items', read: 'public', write: 'user' });
+  const key = async (label, permission) => ({ Authorization: 'Bearer ' + (await call(base + '/keys', 'POST', { label, permission })).data.key });
+  const read = await key('Read access', 'read');
+  const write = await key('Write access', 'write');
+  assert.equal((await api(f.app.publicOrigin, collection, 'GET')).status, 403);
+  assert.equal((await api(f.app.publicOrigin, collection, 'POST', {})).status, 403);
+  assert.equal((await api(f.app.publicOrigin, collection, 'GET', undefined, read)).status, 200);
+  assert.equal((await api(f.app.publicOrigin, collection, 'POST', {}, read)).status, 403);
+  assert.equal((await api(f.app.publicOrigin, collection, 'POST', { active: true }, write)).status, 200);
+  const usage = (await call(base + '/usage')).data;
+  assert.equal(usage.documents, 1);
+  assert.equal(usage.daily[0].requests, 5);
+  assert.equal(usage.daily[0].rejected, 3);
+  assert.equal(usage.daily[0].writes, 1);
+  f.app.store.set('domains', { 'other.example.org': { target: 'project:other' } });
+  assert.equal((await call(base + '/domain', 'POST', { hostname: 'other.example.org', remove: true })).status, 409);
+  assert.equal(f.app.store.get('domains')['other.example.org'].target, 'project:other');
 });
 
 test('project source, successful release, crash recovery, failed deploy, rollback and log redaction', async t => {

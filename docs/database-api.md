@@ -2,7 +2,7 @@
 
 Use the local gateway at `http://127.0.0.1:8766/db/DATABASE_ID` or a named HTTPS hostname mapped directly to the database. The API uses JSON documents and SSE. Firebase clients and Firebase rules are incompatible.
 
-In the **Databases** dashboard, pick a collection to see its live JSON tree. Expand a document or object to browse children. Add, edit or delete values by path, or edit an entire document. A conflicting save asks you to reopen the document with its latest values. The tree refreshes automatically after committed changes and after reconnecting. Use **Collection permissions** to change access and **Realtime** to inspect individual events.
+In **Databases**, open a database and expand a root branch in **Data** to see its live JSON tree. Add, edit or delete values by path, or edit an entire document. Use **Rules** for database and collection access, **Usage** for storage and client request counts, **API** for keys and example calls, and **Custom domain** for the database's HTTPS hostnames.
 
 | Method and path | Operation |
 | --- | --- |
@@ -14,7 +14,7 @@ In the **Databases** dashboard, pick a collection to see its live JSON tree. Exp
 | `DELETE /records/tasks/RECORD_ID` | Delete the document. |
 | `GET /events/tasks` | Subscribe to `change` events with `{collection,type,record}`. Reconnect and fetch current state after interruption. |
 
-Pass `Authorization: Bearer TOKEN` for protected operations. Private collections require database keys. User collections grant access to authenticated database users according to their read/write settings. Public reads require explicit collection configuration. Set the consuming site's HTTPS origin when creating the database if a browser will make cross-origin requests. SSE uses live delivery without replay.
+New databases start with `{ "rules": { ".read": false, ".write": false } }`. Clients must use a database API key as `Authorization: Bearer TOKEN` with those rules. A read key can read and subscribe. A write key can also change records. To allow user sessions, set the relevant rule to `"auth"` and allow user access in the collection. Anonymous reads require `.read: true` and a public collection. Existing databases keep their previous access behavior until their rules are published. Set the consuming site's HTTPS origin at creation for browser cross-origin requests. SSE uses live delivery without replay.
 
 ## JavaScript
 
