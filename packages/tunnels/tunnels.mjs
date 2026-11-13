@@ -105,7 +105,7 @@ export function tunnels(store, projects, documents, monitor, port = 8766, lanPor
     const cloud = credentials();
     if (!cloud.id) throw new HttpError(409, 'Connect a named Cloudflare tunnel first.');
     const configPath = cfPath(cloud) + '/configurations';
-    const { config = {} } = await cf(configPath);
+    const config = (await cf(configPath))?.config ?? {};
     const ingress = config.ingress || [];
     const current = ingress.find(route => route.hostname === hostname);
     if (current && (!existing || current.path || current.service !== origin)) throw new HttpError(409, 'An unrelated tunnel ingress already owns this hostname.');

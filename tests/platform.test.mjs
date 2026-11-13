@@ -8,6 +8,7 @@ import { createHmac } from 'node:crypto';
 import { start } from '../apps/server/index.mjs';
 import { createBackup, restoreBackup } from '../packages/core/backups.mjs';
 import { ensureSpace } from '../packages/core/store.mjs';
+import { seal } from '../packages/security/security.mjs';
 
 const password = 'long fixture administrator password';
 const setup = { username: 'admin', password };
@@ -138,6 +139,32 @@ test('database rules default to API key only and usage tracks client access', as
   f.app.store.set('domains', { 'other.example.org': { target: 'project:other' } });
   assert.equal((await call(base + '/domain', 'POST', { hostname: 'other.example.org', remove: true })).status, 409);
   assert.equal(f.app.store.get('domains')['other.example.org'].target, 'project:other');
+});
+
+test('first database hostname can be added to an unconfigured Cloudflare tunnel', async t => {
+  const f = await fixture(t);
+  const call = await f.authenticate();
+  const { data: database } = await call('databases', 'POST', { name: 'Custom domain' });
+  const id = '11111111-1111-1111-1111-111111111111';
+  const hostname = 'db.example.org';
+  f.app.store.set('cloudflare', seal(f.app.store.key, { id, account: 'a'.repeat(32), zone: 'b'.repeat(32), apiToken: 'fixture' }));
+  const fetchReal = globalThis.fetch;
+  const calls = [];
+  t.mock.method(globalThis, 'fetch', (url, options) => {
+    if (!url.startsWith('https://api.cloudflare.com/')) return fetchReal(url, options);
+    const path = new URL(url).pathname;
+    const method = options.method;
+    calls.push({ path, method, body: options.body && JSON.parse(options.body) });
+    if (path.endsWith('/configurations') && method === 'GET') return Promise.resolve(Response.json({ success: true, result: { config: null } }));
+    if (path.endsWith('/dns_records') && method === 'GET') return Promise.resolve(Response.json({ success: true, result: [] }));
+    return Promise.resolve(Response.json({ success: true, result: { id: 'fixture-record' } }));
+  });
+  const result = await call('databases/' + database.id + '/domain', 'POST', { hostname, dns: true });
+  assert.equal(result.status, 200);
+  assert.deepEqual(result.data.domains[hostname], { target: 'database:' + database.id, record: 'fixture-record' });
+  assert.deepEqual(calls.at(-1).body.config.ingress, [
+    { hostname, service: f.app.publicOrigin }, { service: 'http_status:404' }
+  ]);
 });
 
 test('project source, successful release, crash recovery, failed deploy, rollback and log redaction', async t => {
