@@ -2,6 +2,8 @@
 
 Use the local gateway at `http://127.0.0.1:8766/db/DATABASE_ID` or a named HTTPS hostname mapped directly to the database. The API uses JSON documents and SSE. Firebase clients and Firebase rules are incompatible.
 
+In the **Databases** dashboard, pick a collection to see its live JSON tree. Expand a document or object to browse children. Add, edit or delete values by path, or edit an entire document. A conflicting save asks you to reopen the document with its latest values. The tree refreshes automatically after committed changes and after reconnecting. Use **Collection permissions** to change access and **Realtime** to inspect individual events.
+
 | Method and path | Operation |
 | --- | --- |
 | `POST /login` | Exchange `{"name":"alice","password":"…" }` for an expiring bearer token. An administrator provisions users. |

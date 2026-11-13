@@ -1,9 +1,11 @@
+import { databaseTree } from './database-tree.js';
+
 export const cloudViews = ['projects', 'deployments', 'databases', 'realtime', 'storage', 'domains', 'networking', 'logs', 'backups'];
 const names = Object.fromEntries(cloudViews.map(name => [name, name[0].toUpperCase() + name.slice(1)]));
 const descriptions = {
   projects: 'Configure and run applications from GitHub or local files.',
   deployments: 'Check release history and roll back to a healthy build.',
-  databases: 'Manage collections, documents and database credentials.',
+  databases: 'Browse and edit live JSON data.',
   realtime: 'Watch committed changes arrive from a collection.',
   storage: 'Edit source files and manage persistent application data.',
   domains: 'Map public HTTPS hostnames to applications or databases.',
@@ -240,7 +242,8 @@ export async function renderCloud(view, api, notice) {
         const events = [];
         stream.addEventListener('change', event => {
           events.unshift(date(Date.now()) + '\n' + pretty(JSON.parse(event.data)));
-          output.textContent = events.slice(0, 25).join('\n\n');
+          if (events.length > 25) events.pop();
+          output.textContent = events.join('\n\n');
         });
         add(panel(status, output));
         return;
@@ -249,7 +252,7 @@ export async function renderCloud(view, api, notice) {
       definition.append(html('summary', 'Add collection'), form('Create collection', [
         field('Collection name', input('name')), field('Read permission', select('read', opts(['private', 'user', 'public']))),
         field('Write permission', select('write', opts(['private', 'user']))),
-        field('Fields as JSON', area('fields', '{"title":{"type":"string","required":true,"unique":true}}'))
+        field('Optional field rules (JSON)', area('fields', '{}'))
       ], async values => {
         values.fields = json(values.fields, {}); await api(base + '/collections', values);
         selection.collection = values.name; await reload();
@@ -265,22 +268,24 @@ export async function renderCloud(view, api, notice) {
         tools(...database.keys.map(key => button('Revoke ' + key.label, async () => { await api(base + '/keys', { label: key.label }, 'DELETE'); await reload(); }))),
         form('Create database user', [field('Username', input('name')), field('Password', input('password', '', 'password'))], async values => { await api(base + '/users', values); await reload(); }),
         tools(...database.users.map(name => button('Remove ' + name, async () => { await api(base + '/users', { name }, 'DELETE'); await reload(); }))));
-      add(panel(definition), panel(credentials));
-      if (!collection) return;
-      const records = base + '/records/' + collection;
-      const offset = Number(selection.offset || 0);
-      const list = await api(records + '?limit=25&offset=' + offset);
-      const editor = area('record', '{}');
-      const recordId = input('id', '', 'hidden');
-      add(panel(html('h2', 'Record editor'), form('Save record', [recordId, field('Document JSON', editor)], async values => {
-        await api(records + (values.id ? '/' + values.id : ''), JSON.parse(values.record), values.id ? 'PUT' : 'POST'); await reload();
-      }), tools(button('New record', () => { recordId.value = ''; editor.value = '{}'; editor.focus(); })),
-      tools(button('Previous page', () => { selection.offset = Math.max(0, offset - 25); return reload(); }),
-        ...(list.length === 25 ? [button('Next page', () => { selection.offset = offset + 25; return reload(); })] : []))));
-      for (const row of list) add(panel(show(row.data), tools(
-        button('Edit record', () => { recordId.value = row.id; editor.value = pretty(row.data); editor.focus(); }),
-        button('Delete record', async () => { if (confirm('Delete this document?')) { await api(records + '/' + row.id, {}, 'DELETE'); await reload(); } })
-      )));
+      if (!collection) {
+        definition.open = true;
+        add(panel(definition), panel(credentials));
+        return;
+      }
+      if (run !== generation) return;
+      const rules = database.collections.find(item => item.name === collection);
+      const tree = databaseTree({ api, base, collection, rules, notice });
+      stream = tree;
+      add(tree.panel);
+      const permissions = html('details');
+      permissions.append(html('summary', 'Collection permissions'),
+        note('Public allows anonymous reads. User grants access to signed-in database users. Database keys keep their assigned access.'),
+        form('Save permissions', [
+          field('Read permission', select('read', opts(['private', 'user', 'public']), rules.read)),
+          field('Write permission', select('write', opts(['private', 'user']), rules.write))
+        ], async values => { await api(base + '/collections/' + collection, values, 'PUT'); await reload(); }));
+      add(panel(definition), panel(permissions), panel(credentials));
       const exchange = base + '/exchange/' + collection;
       const exchangePanel = html('details');
       exchangePanel.append(html('summary', 'Import and export'), form('Import documents', [

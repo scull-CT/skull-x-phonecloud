@@ -23,7 +23,7 @@ async function fixture(t) {
   const home = join(parent, 'data');
   const options = { home, port: 0, publicPort: 0, lanPort: 0, interval: 50 };
   let app = await start(options);
-  t.after(async () => { if (app) await app.close(); rmSync(parent, { recursive: true, force: true }); });
+  t.after(async () => { if (app) await app.close(); rmSync(parent, { recursive: true, force: true, maxRetries: 5 }); });
   const code = readFileSync(join(home, 'setup-code'), 'utf8').trim();
   return {
     parent, home, code, get app() { return app; },
@@ -32,7 +32,9 @@ async function fixture(t) {
       const result = await api(app.origin, '/api/setup', 'POST', { ...setup, code });
       assert.equal(result.status, 201);
       const cookie = result.headers.get('set-cookie').split(';')[0];
-      return (path, method = 'GET', body) => api(app.origin, '/api/' + path, method, body, { Cookie: cookie, 'X-CSRF-Token': result.data.csrf });
+      const auth = { Cookie: cookie, 'X-CSRF-Token': result.data.csrf };
+      const call = (path, method = 'GET', body) => api(app.origin, '/api/' + path, method, body, auth);
+      return Object.assign(call, { auth });
     }
   };
 }
@@ -67,6 +69,46 @@ test('setup, origin validation, session persistence, password rotation and monit
   assert.equal((await call('password', 'POST', { current: password, password: password + ' new' })).status, 200);
   assert.equal((await call('overview')).status, 401);
   assert.throws(() => ensureSpace(f.home, Number.MAX_SAFE_INTEGER), { status: 507 });
+});
+
+test('nested JSON edits are atomic, streamed, and protected against stale saves', async t => {
+  const f = await fixture(t);
+  const call = await f.authenticate();
+  const { data: db } = await call('databases', 'POST', { name: 'Tree' });
+  const base = 'databases/' + db.id;
+  const collection = base + '/collections/tasks';
+  await call(base + '/collections', 'POST', { name: 'tasks', fields: { title: { type: 'string', required: true } } });
+  const records = base + '/records/tasks';
+  const external = '/db/' + db.id + '/records/tasks';
+  const { data: doc } = await call(records, 'POST', { title: 'Demo', nested: { 'a/b~': 'old', array: [1, 2] } });
+  const route = records + '/' + doc.id;
+  const events = await fetch(f.app.origin + '/api/' + base + '/events/tasks', { headers: call.auth, signal: AbortSignal.timeout(10000) });
+  assert.equal(events.status, 200);
+  const reader = events.body.getReader();
+  try {
+    await reader.read();
+    const change = { path: ['nested', 'a/b~'], action: 'set', value: 'new', expected: 'old', updated: doc.updated };
+    assert.equal((await api(f.app.origin, '/api/' + route, 'PATCH', change)).status, 401);
+    const updated = await call(route, 'PATCH', change);
+    assert.equal(updated.status, 200);
+    assert.equal(updated.data.data.nested['a/b~'], 'new');
+    assert.match(Buffer.from((await reader.read()).value).toString(), /event: change[\s\S]*"type":"update"[\s\S]*"new"/);
+    assert.equal((await call(route, 'PATCH', change)).status, 409);
+    assert.equal((await call(route + '?updated=' + doc.updated, 'DELETE', {})).status, 409);
+    assert.equal((await call(route, 'PATCH', { path: ['title'], action: 'remove', expected: 'Demo', updated: updated.data.updated })).status, 400);
+    const appended = await call(route, 'PATCH', { path: ['nested', 'array', '-'], action: 'add', value: false, updated: updated.data.updated });
+    assert.deepEqual(appended.data.data.nested.array, [1, 2, false]);
+    const removed = await call(route, 'PATCH', { path: ['nested', 'array', '1'], action: 'remove', expected: 2, updated: appended.data.updated });
+    assert.deepEqual(removed.data.data.nested.array, [1, false]);
+    const safe = await call(route, 'PATCH', { path: ['nested', '__proto__'], action: 'add', value: { safe: true }, updated: removed.data.updated });
+    assert.deepEqual(safe.data.data.nested['__proto__'], { safe: true });
+    assert.equal({}.safe, undefined);
+    assert.equal((await api(f.app.publicOrigin, external, 'GET')).status, 403);
+    assert.equal((await call(collection, 'PUT', { read: 'public', write: 'private' })).status, 200);
+    assert.equal((await api(f.app.publicOrigin, external, 'GET')).status, 200);
+    assert.equal((await api(f.app.publicOrigin, external, 'POST', { title: 'Denied' })).status, 403);
+    assert.equal((await call(route, 'PATCH', { path: [], action: 'set', expected: safe.data.data, value: {}, updated: safe.data.updated })).status, 400);
+  } finally { await reader.cancel(); }
 });
 
 test('project source, successful release, crash recovery, failed deploy, rollback and log redaction', async t => {

@@ -28,3 +28,27 @@ form{display:grid;gap:1rem;margin-top:1.2rem}form label,.range{display:grid;gap:
 .stack{display:grid;gap:1rem}.toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:.55rem;margin-top:.7rem}.toolbar a{border:1px solid var(--edge);border-radius:9px;padding:.55rem .8rem}.field-note{font-size:.87rem}
 .panel>label{display:grid;gap:.35rem;margin-bottom:.6rem}.panel h2{overflow-wrap:anywhere}
 textarea{width:100%;resize:vertical;min-height:90px;padding:.7rem;font:inherit;color:inherit;background:var(--bg);border:1px solid var(--edge);border-radius:9px}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--bg);padding:.8rem;border-radius:8px;max-height:25rem;overflow:auto}.form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:.8rem}.form-grid label{min-width:0}label:has(input[type=checkbox]){display:flex;align-items:center;gap:.5rem}input[type=checkbox]{width:1rem;min-height:1rem;accent-color:var(--accent)}summary{cursor:pointer;font-weight:700}.details button{margin-top:.7rem}
+.database-tree{min-width:0}
+.tree-header{display:flex;align-items:center;justify-content:space-between;gap:.75rem;flex-wrap:wrap}
+.tree-header code,.tree-paging,.database-tree .toolbar span{color:var(--muted)}
+.tree-status{padding:.25rem .65rem;border:1px solid var(--edge);border-radius:999px;color:var(--muted);font-size:.8rem}
+.tree-status[data-live]{color:var(--good)}
+.tree-list,.tree-children{list-style:none;margin:0;padding:0}
+.tree-list{margin-block:1rem;border:1px solid var(--edge);border-radius:10px;padding:.35rem}
+.tree-children{margin-inline-start:.65rem;padding-inline-start:.4rem;border-inline-start:1px solid var(--edge)}
+.tree-row{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem .55rem;padding:.25rem;min-height:44px;border-bottom:1px solid var(--edge)}
+.tree-row:hover{background:var(--panel-hover)}
+.tree-key{font-weight:650;overflow-wrap:anywhere;min-width:0}
+.tree-value{color:var(--muted);overflow-wrap:anywhere;min-width:0}
+.tree-string{color:var(--good)}
+.tree-number,.tree-boolean,.tree-null{color:var(--accent)}
+.tree-toggle,.tree-indent{flex:0 0 2rem}
+.tree-toggle,.tree-actions button,.tree-paging button{padding:.3rem .48rem;min-height:36px}
+.tree-actions{display:flex;flex-wrap:wrap;gap:.25rem;margin-inline-start:auto}
+.tree-empty{padding:.7rem;color:var(--muted)}
+.tree-editor{border:1px solid var(--edge);border-radius:10px;background:var(--bg);padding:.9rem;gap:.55rem}
+.tree-editor h3{margin:0}
+.tree-editor code{overflow-wrap:anywhere;color:var(--muted)}
+.tree-editor textarea{min-height:7rem;font-family:monospace}
+.tree-warning{color:var(--danger)}
+@media(max-width:520px){.tree-children{margin-inline-start:.25rem;padding-inline-start:.2rem}.tree-actions{flex-basis:100%;margin-inline-start:0}.tree-key{max-width:calc(100% - 3rem)}}

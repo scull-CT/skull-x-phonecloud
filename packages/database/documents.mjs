@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { HttpError, ensureSpace } from '../core/store.mjs';
 import { requiredText, json, jsonBody } from '../core/http.mjs';
 import { digest, token, passwordHash, strongPassword, verifyPassword, rateLimiter } from '../security/security.mjs';
+import { editPath } from './path-edit.mjs';
 
 const namePattern = /^[a-z][a-z0-9_]{0,47}$/;
 const idPattern = /^[a-f0-9-]{36}$/;
@@ -96,7 +97,7 @@ export function documentService(store) {
     const payload = `event: change\ndata: ${JSON.stringify({ collection, type, record })}\n\n`;
     for (const client of subscribers) {
       if (client.id !== id || client.collection !== collection) continue;
-      if (client.expires <= Date.now() || client.res.writableLength > 65536) client.res.end();
+      if (client.expires <= Date.now() || !client.authorize() || client.res.writableLength > 65536) client.res.end();
       else client.res.write(payload);
     }
   }
@@ -138,11 +139,20 @@ export function documentService(store) {
       publish(id, collection, 'delete', { id: recordId });
       return { id: recordId };
     }
-    const replace = method === 'PUT' && recordId;
+    const replace = ['PUT', 'PATCH'].includes(method) && recordId;
     if (!(method === 'POST' && !recordId) && !replace) throw new HttpError(405, 'Unsupported record operation.');
     const idValue = recordId || randomUUID();
+    const previous = replace && db.prepare('SELECT data,updated FROM records WHERE collection=? AND id=?').get(collection, idValue);
+    if (replace && !previous) throw new HttpError(404, 'Record not found.');
+    if (method === 'PATCH') {
+      if (input.updated !== previous.updated) {
+        throw new HttpError(409, 'This document changed. Reopen it before editing.');
+      }
+      if (input.action === 'remove' && Array.isArray(input.path) && !input.path.length) throw new HttpError(400, 'Use DELETE to remove a document.');
+      input = editPath(JSON.parse(previous.data), input);
+    }
     const data = checked(input, rules);
-    const updated = Date.now();
+    const updated = Math.max(Date.now(), (previous?.updated ?? 0) + 1);
     try {
       if (replace) {
         if (!db.prepare('UPDATE records SET data=?,updated=? WHERE collection=? AND id=?').run(data, updated, collection, idValue).changes) throw new HttpError(404, 'Record not found.');
@@ -152,19 +162,19 @@ export function documentService(store) {
     publish(id, collection, replace ? 'update' : 'create', record);
     return record;
   }
-  function stream(id, collection, res, expires = Date.now() + 1800000) {
+  function stream(id, collection, res, expires = Date.now() + 1800000, authorize = () => true) {
     if (subscribers.size >= 48) throw new HttpError(429, 'Realtime client limit reached.');
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' });
     res.write(': connected\n\n');
-    const client = { id, collection, res, expires: Math.min(expires, Date.now() + 1800000) };
+    const client = { id, collection, res, expires: Math.min(expires, Date.now() + 1800000), authorize };
     subscribers.add(client);
     const pulse = setInterval(() => {
-      if (client.expires <= Date.now() || res.writableLength > 65536) res.end();
+      if (client.expires <= Date.now() || !authorize() || res.writableLength > 65536) res.end();
       else res.write(': heartbeat\n\n');
     }, 15000);
     res.on('close', () => { clearInterval(pulse); subscribers.delete(client); });
   }
-  async function admin(id, parts, req, res, params) {
+  async function admin(id, parts, req, res, params, authorize) {
     entry(id);
     const db = open(id);
     const [section, collection, recordId] = parts;
@@ -173,6 +183,15 @@ export function documentService(store) {
       define(db, await jsonBody(req));
       store.audit('Collection created ' + id);
       return json(res, inspect(id), 201);
+    }
+    if (section === 'collections' && req.method === 'PUT' && collection) {
+      const { read, write } = await jsonBody(req, 4096);
+      if (!['public', 'user', 'private'].includes(read) || !['user', 'private'].includes(write)) throw new HttpError(400, 'Invalid collection permissions.');
+      const rules = rulesFor(db, collection);
+      db.prepare('UPDATE collections SET rules=? WHERE name=?').run(JSON.stringify({ ...rules, read, write }), collection);
+      for (const client of subscribers) if (client.id === id && client.collection === collection) client.res.end();
+      store.audit('Collection permissions changed ' + id);
+      return json(res, inspect(id));
     }
     if (section === 'keys' && ['POST', 'DELETE'].includes(req.method)) {
       const input = await jsonBody(req);
@@ -207,10 +226,14 @@ export function documentService(store) {
       return json(res, { ok: true });
     }
     if (section === 'records') {
-      const input = ['POST', 'PUT'].includes(req.method) ? await jsonBody(req) : null;
+      const input = ['POST', 'PUT', 'PATCH'].includes(req.method) ? await jsonBody(req) : null;
+      if (req.method === 'DELETE' && params.has('updated')) {
+        const row = db.prepare('SELECT updated FROM records WHERE collection=? AND id=?').get(collection, recordId);
+        if (row && String(row.updated) !== params.get('updated')) throw new HttpError(409, 'This document changed. Reopen it before deleting.');
+      }
       return json(res, records(id, collection, req.method, recordId, input, params, 'write'));
     }
-    if (section === 'events' && req.method === 'GET') { rulesFor(db, collection); return stream(id, collection, res); }
+    if (section === 'events' && req.method === 'GET') { rulesFor(db, collection); return stream(id, collection, res, undefined, authorize); }
     if (section === 'exchange' && req.method === 'GET') {
       const data = db.prepare('SELECT id,data,updated FROM records WHERE collection=? ORDER BY id LIMIT 1001').all(collection).map(parseRecord);
       rulesFor(db, collection);

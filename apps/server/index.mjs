@@ -17,7 +17,8 @@ const assets = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
   ['/app.css', ['app.css', 'text/css; charset=utf-8']],
   ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
-  ['/cloud.js', ['cloud.js', 'text/javascript; charset=utf-8']]
+  ['/cloud.js', ['cloud.js', 'text/javascript; charset=utf-8']],
+  ['/database-tree.js', ['database-tree.js', 'text/javascript; charset=utf-8']]
 ]);
 const sessionAge = 12 * 60 * 60 * 1000;
 const usernameValid = value => typeof value === 'string' && /^[a-zA-Z0-9_.-]{3,40}$/.test(value);
@@ -177,7 +178,7 @@ export async function start({ home = process.env.PHONECLOUD_HOME || join(homedir
       if (area === 'databases') {
         if (!id && method === 'GET') return json(res, documents.list());
         if (!id && method === 'POST') return json(res, documents.create(await jsonBody(req)), 201);
-        if (id) return await documents.admin(id, [operation, ...parts], req, res, url.searchParams);
+        if (id) return await documents.admin(id, [operation, ...parts], req, res, url.searchParams, () => Boolean(session(req)));
       }
       if (area === 'networking') return await network.admin([id, operation, ...parts], req, res, url.searchParams);
       if (area === 'backups') {
