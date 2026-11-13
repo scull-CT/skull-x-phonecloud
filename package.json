@@ -1,0 +1,12 @@
+{
+  "name": "skull-x-phonecloud",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "start": "node apps/server/index.mjs",
+    "test": "node --test tests/*.test.mjs"
+  }
+}

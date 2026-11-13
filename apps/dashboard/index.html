@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#111115">
+  <title>Skull X PhoneCloud</title>
+  <link rel="stylesheet" href="/app.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="top">
+    <a class="brand" href="#overview"><span class="mark" aria-hidden="true">X</span><span>Skull X <b>PhoneCloud</b></span></a>
+    <button id="theme" type="button">Light mode</button>
+  </header>
+  <div class="layout">
+    <aside id="sidebar" hidden>
+      <nav aria-label="Dashboard">
+        <a href="#overview">Overview</a>
+        <a href="#projects">Projects</a>
+        <a href="#deployments">Deployments</a>
+        <a href="#databases">Databases</a>
+        <a href="#realtime">Realtime</a>
+        <a href="#storage">Storage</a>
+        <a href="#domains">Domains</a>
+        <a href="#networking">Networking</a>
+        <a href="#monitoring">Monitoring</a>
+        <a href="#logs">Logs</a>
+        <a href="#backups">Backups</a>
+        <a href="#security">Security</a>
+        <a href="#settings">Settings</a>
+      </nav>
+      <button id="logout" type="button">Sign out</button>
+    </aside>
+    <main id="main" tabindex="-1">
+      <p id="notice" role="status"></p>
+      <section id="access" class="access">
+        <div class="panel">
+          <h1 id="access-title">Loading dashboard</h1>
+          <p id="access-description"></p>
+          <form id="access-form" hidden>
+            <label id="code-label" hidden>Setup code<input name="code" autocomplete="off" spellcheck="false"></label>
+            <label>Username<input name="username" autocomplete="username" maxlength="40" required></label>
+            <label>Password<input name="password" type="password" autocomplete="current-password" maxlength="256" required></label>
+            <button type="submit" class="primary" id="access-submit">Sign in</button>
+          </form>
+        </div>
+      </section>
+      <section id="overview" class="page" hidden>
+        <div class="page-head"><div><h1>Overview</h1><p>Health and capacity of your local cloud.</p></div><span id="service-state" class="pill"></span></div>
+        <div id="overview-cards" class="grid"></div>
+        <div class="panel details"><h2>Service details</h2><dl id="service-details"></dl></div>
+      </section>
+      <section id="monitoring" class="page" hidden>
+        <div class="page-head"><div><h1>Monitoring</h1><p>Device and dashboard measurements.</p></div><label class="range">Time range<select id="range"><option value="1">Last hour</option><option value="6">Last 6 hours</option><option value="24">Last 24 hours</option><option value="168">Last 7 days</option></select></label></div>
+        <div id="charts" class="grid chart-grid"></div>
+        <div class="panel details"><h2>Latest device readings</h2><dl id="monitor-details"></dl></div>
+      </section>
+      <section id="security" class="page" hidden>
+        <div class="page-head"><div><h1>Security</h1><p>Recent administrator activity.</p></div></div>
+        <div class="panel"><ul id="audit" class="audit"></ul></div>
+      </section>
+      <section id="settings" class="page" hidden>
+        <div class="page-head"><div><h1>Settings</h1><p>Manage your administrator account.</p></div></div>
+        <div class="panel settings">
+          <h2>Change password</h2>
+          <p>Changing your password signs out your other sessions.</p>
+          <form id="password-form">
+            <label>Current password<input name="current" type="password" required autocomplete="current-password"></label>
+            <label>New password<input name="password" type="password" required minlength="14" maxlength="256" autocomplete="new-password"></label>
+            <button type="submit" class="primary">Save password</button>
+          </form>
+        </div>
+        <div class="panel details"><h2>Diagnostics</h2><p>Download system readings and dependency versions.</p><button id="diagnostics" type="button">Download report</button></div>
+      </section>
+      <section id="cloud" class="page" hidden></section>
+    </main>
+  </div>
+</body>
+</html>

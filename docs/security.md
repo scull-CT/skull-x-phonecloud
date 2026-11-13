@@ -1,0 +1,10 @@
+# Security and limits
+
+- Keep the dashboard on the phone's loopback address. The separate gateway is the only supported Tunnel target. Local HTTP is intentional for loopback. Sessions use HttpOnly and SameSite=Strict cookies with exact Host and Origin validation and per-session CSRF tokens. Do not map the management port to a public hostname.
+- Setup uses a high-entropy single-use code stored in a private file. Passwords use scrypt with per-password salts. Session and database tokens are stored by hash. Project secrets and Cloudflare credentials use AES-256-GCM under the installation key.
+- The administrator controls all workloads. Each workload can access anything the Termux UID can access, including the installation key and manager files. Use trusted projects and dependencies. PhoneCloud has no container, hostile tenant or malicious application isolation.
+- Applications should bind the provided `HOST` and `PORT`. Use the dashboard's `localhost` app links for local previews. Browsers scope cookies by host, independent of port. Keep apps off the dashboard host wherever possible.
+- Project commands use argument vectors with shell expansion disabled. An administrator can deliberately choose an interpreter. Build and runtime logs redact exact configured environment values. Encoding, transforming or splitting secrets across lines may evade redaction. Avoid printing credentials in applications.
+- Read/write keys grant collection access across one database. Users receive time-limited tokens and access based on collection-level rules. Public collections allow anonymous reads only. Use narrowly scoped API keys and keep write keys off clients.
+- Static project output is public. Use an output directory containing only assets intended for publication. Review any remote deployment before mapping it to an HTTPS domain.
+- Android may kill background processes even with Termux:Boot and a wake lock. Keep off-device backups. Local diagnostic downloads include operational details and should be shared selectively.
