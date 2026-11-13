@@ -152,6 +152,7 @@ export async function start({ home = process.env.PHONECLOUD_HOME || join(homedir
       if (method === 'GET' && path === '/api/audit') return json(res, store.db.prepare('SELECT time,action FROM audit ORDER BY id DESC LIMIT 100').all());
       const [area, id, operation, ...parts] = path.split('/').slice(2);
       if (area === 'projects') {
+        if (id && operation === 'domain' && method === 'POST') return await network.resourceDomain('project', id, req, res);
         if (!id && method === 'GET') return json(res, hosting.list());
         if (!id && method === 'POST') return json(res, hosting.create(await jsonBody(req)), 201);
         if (!operation && method === 'PUT') return json(res, hosting.update(id, await jsonBody(req)));
@@ -178,7 +179,7 @@ export async function start({ home = process.env.PHONECLOUD_HOME || join(homedir
       if (area === 'databases') {
         if (!id && method === 'GET') return json(res, documents.list());
         if (!id && method === 'POST') return json(res, documents.create(await jsonBody(req)), 201);
-        if (id && operation === 'domain' && method === 'POST') return await network.databaseDomain(id, req, res);
+        if (id && operation === 'domain' && method === 'POST') return await network.resourceDomain('database', id, req, res);
         if (id) return await documents.admin(id, [operation, ...parts], req, res, url.searchParams, () => Boolean(session(req)));
       }
       if (area === 'networking') return await network.admin([id, operation, ...parts], req, res, url.searchParams);

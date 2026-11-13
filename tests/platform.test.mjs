@@ -165,6 +165,13 @@ test('first database hostname can be added to an unconfigured Cloudflare tunnel'
   assert.deepEqual(calls.at(-1).body.config.ingress, [
     { hostname, service: f.app.publicOrigin }, { service: 'http_status:404' }
   ]);
+  const { data: project } = await call('projects', 'POST', { name: 'Custom app', type: 'static' });
+  const projectRoute = 'projects/' + project.id + '/domain';
+  assert.equal((await call(projectRoute, 'POST', { hostname, remove: true })).status, 409);
+  const appHostname = 'app.example.org';
+  const mapped = await call(projectRoute, 'POST', { hostname: appHostname, target: 'database:' + database.id });
+  assert.equal(mapped.status, 200);
+  assert.equal(mapped.data.domains[appHostname].target, 'project:' + project.id);
 });
 
 test('project source, successful release, crash recovery, failed deploy, rollback and log redaction', async t => {

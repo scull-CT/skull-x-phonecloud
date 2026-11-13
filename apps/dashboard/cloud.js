@@ -17,6 +17,11 @@ const selection = {};
 const openBranches = new Map();
 const databaseTabs = [['data', 'Data'], ['rules', 'Rules'], ['usage', 'Usage'], ['api', 'API'], ['domain', 'Custom domain']];
 const databaseHref = (id, tab = 'data') => '#databases/' + id + '/' + tab;
+const projectTabs = [['overview', 'Overview'], ['deployments', 'Deployments'], ['files', 'Files'], ['logs', 'Logs'], ['settings', 'Settings'], ['domain', 'Custom domain']];
+const projectHref = (id, tab = 'overview') => '#projects/' + id + '/' + tab;
+const runtimeOptions = [['node', 'Node.js'], ['python', 'Python'], ['static', 'Static HTML'], ['vite', 'React / Vite']];
+const runtimeLabel = type => runtimeOptions.find(([id]) => id === type)?.[1] || type;
+const projectStatus = project => project.busy ? 'Working' : project.running ? 'Running' : 'Stopped';
 let stream;
 let generation = 0;
 const pretty = value => JSON.stringify(value, null, 2);
@@ -73,7 +78,8 @@ export async function renderCloud(view, api, notice) {
   heading.append(title);
   const content = html('div', null, { class: 'stack' });
   target.replaceChildren(heading, content);
-  const reload = () => renderCloud(view, api, notice);
+  const initialHash = location.hash;
+  const reload = () => { if (initialHash === location.hash) return renderCloud(view, api, notice); };
   async function perform(task, control) {
     notice('');
     if (control) control.disabled = true;
@@ -100,14 +106,46 @@ export async function renderCloud(view, api, notice) {
     return field(label, control);
   }
   function add(...elements) { if (generation === run) content.append(...elements); }
+  function openWorkspace(backLabel, name, root, tabs, active, href) {
+    title.replaceChildren(html('a', '← ' + backLabel, { href: '#' + root, class: 'database-back' }), html('h1', name));
+    const nav = html('nav', null, { class: 'database-tabs', 'aria-label': root === 'projects' ? 'Project sections' : 'Database sections' });
+    for (const [key, label] of tabs) {
+      const anchor = html('a', label, { href: href(key) });
+      if (active === key) anchor.setAttribute('aria-current', 'page');
+      nav.append(anchor);
+    }
+    add(nav);
+  }
+  function domainControls(base, net, target) {
+    if (!net.id) return add(panel(html('h2', 'Custom domain'), note('Connect a named Cloudflare tunnel to use an HTTPS hostname.'),
+      tools(html('a', 'Open Networking', { href: '#networking' }))));
+    add(panel(html('h2', 'Add hostname'), form('Connect domain', [
+      field('Hostname', input('hostname')), field('Create Cloudflare DNS record', input('dns', 'yes', 'checkbox'))
+    ], async values => { await api(base + '/domain', values); await reload(); }),
+    note('Manual DNS target: ' + net.id + '.cfargotunnel.com')));
+    for (const [hostname, info] of Object.entries(net.domains)) {
+      if (info.target !== target) continue;
+      const output = html('div');
+      add(panel(html('h2', hostname), tools(link('Open HTTPS address', 'https://' + hostname),
+        button('Test DNS and HTTPS', async () => output.replaceChildren(show(await api('networking/verify?host=' + encodeURIComponent(hostname))))),
+        button('Remove domain', async () => {
+          if (confirm('Remove ' + hostname + '?')) { await api(base + '/domain', { hostname, remove: true }); await reload(); }
+        })), output));
+    }
+  }
   try {
     if (['projects', 'deployments', 'logs', 'storage'].includes(view)) {
       const items = await api('projects');
-      const selector = choose('Project', rows(items), 'project');
-      const item = items.find(candidate => candidate.id === selection.project);
-      if (view === 'projects') {
+      if (run !== generation) return;
+      const workspace = view === 'projects';
+      const [, projectId, requestedTab] = workspace ? location.hash.slice(1).split('/') : [];
+      const selector = workspace ? null : choose('Project', rows(items), 'project');
+      const item = items.find(candidate => candidate.id === (workspace ? projectId : selection.project));
+      const tab = workspace ? (projectTabs.some(([key]) => key === requestedTab) ? requestedTab : 'overview')
+        : view === 'storage' ? 'files' : view;
+      if (workspace) {
         const projectForm = (project, label) => form(label, [
-          field('Name', input('name', project?.name)), field('Runtime', select('type', [['node', 'Node.js'], ['python', 'Python'], ['static', 'Static HTML'], ['vite', 'React / Vite']], project?.type)),
+          field('Name', input('name', project?.name)), field('Runtime', select('type', runtimeOptions, project?.type)),
           field('GitHub repository URL', input('repo', project?.repo, 'url')), field('Branch', input('branch', project?.branch || 'main')),
           field('Static output directory', input('output', project?.output || '')), field('HTTP health path', input('health', project?.health || '/')),
           field('Restart backoff in seconds', input('backoff', project?.backoff || 2, 'number')),
@@ -120,47 +158,85 @@ export async function renderCloud(view, api, notice) {
           values.secrets = json(values.secrets, undefined);
           const result = await api('projects' + (project ? '/' + project.id : ''), values, project ? 'PUT' : 'POST');
           selection.project = result.id;
-          await reload();
+          if (project) await reload();
+          else if (initialHash === location.hash) location.hash = projectHref(result.id);
         });
-        const create = html('details');
-        create.open = !item;
-        create.append(html('summary', 'Create project'), note('Deploy only repositories and dependencies you trust. All apps share the Termux user.'), projectForm(null, 'Create project'));
-        add(panel(create));
-        if (!item) return;
+        if (!item) {
+          const create = html('details', null, { class: 'database-create' });
+          create.append(html('summary', 'New project'), note('Deploy repositories and dependencies you trust. All apps share the Termux user.'), projectForm(null, 'Create project'));
+          add(panel(create));
+          if (!items.length) return add(panel(note('No projects yet. Create one to deploy your first application.')));
+          const listing = html('ul', null, { class: 'database-list' });
+          for (const project of items) {
+            const row = html('li');
+            const open = html('a', null, { href: projectHref(project.id) });
+            open.append(html('strong', project.name), note(runtimeLabel(project.type) + ' · ' + projectStatus(project)));
+            row.append(open);
+            listing.append(row);
+          }
+          return add(panel(listing));
+        }
+        selection.project = item.id;
+        openWorkspace('All projects', item.name, 'projects', projectTabs, tab, key => projectHref(item.id, key));
         const base = 'projects/' + item.id;
-        const state = item.busy ? 'Working' : item.running
-          ? ['Running', item.healthStatus, item.pid ? 'PID ' + item.pid : 'static server', Math.floor(item.uptime) + ' s uptime'].join(' · ') : 'Stopped';
-        const actions = ['deploy', 'start', 'stop', 'restart'].filter(action => !item.busy && (action === 'deploy' || item.current) && (action !== 'start' || !item.running))
+        if (tab === 'domain') return domainControls(base, await api('networking'), 'project:' + item.id);
+        if (tab === 'settings') {
+          const webhook = html('div');
+          const controls = [button(item.webhookEnabled ? 'Rotate webhook secret' : 'Create webhook secret', async () => {
+            const result = await api(base + '/webhook', {});
+            webhook.replaceChildren(note('Save this secret now. Point a GitHub push webhook at /hooks/' + item.id + ' on a named public hostname.'), show(result.secret));
+          })];
+          if (item.webhookEnabled) controls.push(button('Disable webhook', async () => { await api(base + '/webhook', { disable: true }); await reload(); }));
+          add(panel(html('h2', 'Configuration'), note('Stored environment variable names: ' + (item.secretNames.join(', ') || 'none')), projectForm(item, 'Save configuration')),
+            panel(html('h2', 'GitHub webhook'), tools(...controls), webhook),
+            panel(html('h2', 'Remove project'), tools(button('Remove project', async () => {
+              if (!confirm('Remove ' + item.name + ' from active projects? Its files will remain on disk.')) return;
+              await api(base, {}, 'DELETE');
+              if (initialHash === location.hash) location.hash = '#projects';
+            }))));
+          return;
+        }
+        if (tab === 'overview') {
+          const state = item.running
+            ? [projectStatus(item), item.healthStatus, item.pid ? 'PID ' + item.pid : 'static server', Math.floor(item.uptime) + ' s uptime'].filter(Boolean).join(' · ')
+            : projectStatus(item);
+          const actions = ['deploy', ...(item.current ? (item.running ? ['stop', 'restart'] : ['start']) : [])].filter(() => !item.busy)
           .map(action => button(action[0].toUpperCase() + action.slice(1), async () => {
             await api(base + '/action', { action });
-            if (action === 'deploy') location.hash = '#deployments';
+            if (action === 'deploy' && initialHash === location.hash) location.hash = projectHref(item.id, 'deployments');
             else await reload();
           }));
-        if (item.port) actions.push(link('Open application', 'http://localhost:' + item.port));
-        else if (item.running) {
           const net = await api('networking');
-          actions.push(link('Open application', net.origin.replace('127.0.0.1', 'localhost') + '/app/' + item.id + '/'));
+          const urls = [];
+          if (net.lan.project === item.id && net.lan.url) urls.push(link('Open on Wi-Fi', net.lan.url));
+          for (const [host, route] of Object.entries(net.domains)) {
+            if (route.target === 'project:' + item.id) urls.push(link(host, 'https://' + host));
+          }
+          if (item.running) {
+            const preview = item.port ? 'http://localhost:' + item.port : net.origin.replace('127.0.0.1', 'localhost') + '/app/' + item.id + '/';
+            urls.push(link('Open on phone', preview));
+          }
+          const share = net.lan.project === item.id ? button('Stop Wi-Fi sharing', async () => {
+            await api('networking/lan', { project: null }); await reload();
+          }) : item.running ? button('Share on Wi-Fi', async () => {
+            if (net.lan.project && !confirm('Switch Wi-Fi sharing to ' + item.name + '?')) return;
+            await api('networking/lan', { project: item.id }); await reload();
+          }) : null;
+          add(panel(html('h2', 'Service status'), note(state), note(runtimeLabel(item.type) + (item.repo ? ' · ' + item.branch : '')),
+            ...(actions.length ? [tools(...actions)] : []), tools(button('Refresh status', reload))),
+          panel(html('h2', 'Application access'), ...(urls.length ? [tools(...urls)] : [note('Deploy and start the app to open it.')]),
+            ...(share ? [tools(share)] : []), ...(net.lan.project === item.id && net.lan.error ? [note(net.lan.error)] : [])));
+          return;
         }
-        const webhook = html('div');
-        actions.push(button(item.webhookEnabled ? 'Rotate webhook secret' : 'Create webhook secret', async () => {
-          const result = await api(base + '/webhook', {});
-          webhook.replaceChildren(note('Save this secret now. Point a GitHub push webhook at /hooks/' + item.id + ' on a named public hostname.'), show(result.secret));
-        }));
-        if (item.webhookEnabled) actions.push(button('Disable webhook', async () => { await api(base + '/webhook', { disable: true }); await reload(); }));
-        actions.push(button('Remove project', async () => {
-          if (!confirm('Remove ' + item.name + ' from active projects? Its files will remain on disk.')) return;
-          await api(base, {}, 'DELETE'); await reload();
-        }));
-        const edit = html('details');
-        edit.append(html('summary', 'Edit project'), note('Stored environment variable names: ' + (item.secretNames.join(', ') || 'none')), projectForm(item, 'Save configuration'));
-        add(panel(selector, html('h2', item.name), note(state), tools(...actions), webhook), panel(edit));
-        return;
       }
-      if (!item) return add(panel(note('Create a project to use this view.'), tools(link('Go to Projects', '#projects'))));
+      if (!item) return add(panel(note('Create a project to use this view.'), tools(html('a', 'Go to Projects', { href: '#projects' }))));
       const base = 'projects/' + item.id;
-      if (view === 'deployments') {
+      const picker = selector ? [selector] : [];
+      if (tab === 'deployments') {
         const releases = await api(base + '/releases');
-        add(panel(selector, tools(button('Refresh releases', reload))));
+        add(panel(...picker, tools(button('Refresh releases', reload), ...(!item.busy ? [button('Deploy', async () => {
+          await api(base + '/action', { action: 'deploy' }); await reload();
+        })] : []))));
         if (!releases.length) add(panel(note('Deploy this project to create its first release.')));
         for (const release of releases) {
           const current = release.id === item.current;
@@ -172,25 +248,26 @@ export async function renderCloud(view, api, notice) {
           add(section);
         }
       }
-      if (view === 'logs') {
+      if (tab === 'logs') {
         const kind = choose('Log stream', opts(['runtime', 'build']), 'logKind');
         const result = await api(base + '/logs?kind=' + selection.logKind);
-        add(panel(selector, kind, tools(button('Refresh logs', reload)), result.log ? show(result.log) : note('No log output yet.')));
+        add(panel(...picker, kind, tools(button('Refresh logs', reload)), result.log ? show(result.log) : note('No log output yet.')));
       }
-      if (view === 'storage') {
+      if (tab === 'files') {
         const fileArea = choose('Storage area', opts(['source', 'data']), 'fileArea');
-        const path = selection.file || '';
+        const fileKey = item.id + '/' + selection.fileArea;
+        const path = selection[fileKey] || '';
         const files = await api(base + '/files', { area: selection.fileArea });
         const editor = area('content');
         const pathField = input('path', path);
         const upload = input('upload', '', 'file');
         const request = (action, path, values = {}) => api(base + '/files', { area: selection.fileArea, action, path, ...values });
         const save = form('Save text file', [field('Relative file path', pathField), field('Text content', editor)], async values => {
-          await request('write', values.path, { content: values.content }); selection.file = values.path; await reload();
+          await request('write', values.path, { content: values.content }); selection[fileKey] = values.path; await reload();
         });
         const listing = tools(...files.map(name => button(name, async () => {
           const file = await request('read', name);
-          selection.file = pathField.value = name;
+          selection[fileKey] = pathField.value = name;
           editor.value = file.content;
         })));
         const fileActions = tools(
@@ -207,10 +284,11 @@ export async function renderCloud(view, api, notice) {
           }),
           button('Delete file', async () => {
             if (!pathField.value || !confirm('Delete this file?')) return;
-            await request('delete', pathField.value); selection.file = ''; await reload();
+            await request('delete', pathField.value); selection[fileKey] = ''; await reload();
           })
         );
-        add(panel(selector, fileArea, files.length ? listing : note('No files in this area.')),
+        if (path && files.includes(path)) editor.value = (await request('read', path)).content;
+        add(panel(...picker, fileArea, files.length ? listing : note('No files in this area.')),
           panel(save, field('Upload a file', upload), fileActions));
       }
       return;
@@ -241,14 +319,7 @@ export async function renderCloud(view, api, notice) {
       const database = await api(base);
       if (run !== generation) return;
       const tab = databaseTabs.some(([key]) => key === requestedTab) ? requestedTab : 'data';
-      title.replaceChildren(html('a', '← All databases', { href: '#databases', class: 'database-back' }), html('h1', item.name));
-      const tabs = html('nav', null, { class: 'database-tabs', 'aria-label': 'Database sections' });
-      for (const [key, label] of databaseTabs) {
-        const anchor = html('a', label, { href: databaseHref(item.id, key) });
-        if (tab === key) anchor.setAttribute('aria-current', 'page');
-        tabs.append(anchor);
-      }
-      add(tabs);
+      openWorkspace('All databases', item.name, 'databases', databaseTabs, tab, key => databaseHref(item.id, key));
       if (tab === 'usage') {
         const usagePanel = panel(html('h2', 'Usage'));
         const output = html('div');
@@ -320,23 +391,7 @@ export async function renderCloud(view, api, notice) {
         if (run !== generation) return;
         const target = 'database:' + item.id;
         const domains = Object.entries(net.domains).filter(([, info]) => info.target === target);
-        if (tab === 'domain') {
-          if (!net.id) return add(panel(html('h2', 'Custom domain'), note('Connect a named Cloudflare tunnel to give this database an HTTPS address.'),
-            tools(html('a', 'Open Networking', { href: '#networking' }))));
-          add(panel(html('h2', 'Add hostname'), form('Connect domain', [
-            field('Hostname', input('hostname')), field('Create Cloudflare DNS record', input('dns', 'yes', 'checkbox'))
-          ], async values => { await api(base + '/domain', values); await reload(); }),
-          note('Manual DNS target: ' + net.id + '.cfargotunnel.com')));
-          for (const [hostname] of domains) {
-            const output = html('div');
-            add(panel(html('h2', hostname), tools(
-              button('Test DNS and HTTPS', async () => output.replaceChildren(show(await api('networking/verify?host=' + encodeURIComponent(hostname))))),
-              button('Remove domain', async () => {
-                if (confirm('Remove ' + hostname + '?')) { await api(base + '/domain', { hostname, remove: true }); await reload(); }
-              })), output));
-          }
-          return;
-        }
+        if (tab === 'domain') return domainControls(base, net, target);
         const local = net.origin + '/db/' + item.id;
         const endpoint = domains.length ? 'https://' + domains[0][0] : local;
         const branchSelect = select('branch', opts(database.collections.map(branch => branch.name)));

@@ -232,10 +232,9 @@ export function tunnels(store, projects, documents, monitor, port = 8766, lanPor
     async removeSharedProject(id) {
       if (lan.config().project === id) await lan.set(null);
     },
-    async databaseDomain(id, req, res) {
-      documents.inspect(id);
+    async resourceDomain(type, id, req, res) {
+      const target = routeTarget(type + ':' + id);
       const input = await jsonBody(req, 4096);
-      const target = 'database:' + id;
       if (changing) throw new HttpError(409, 'A networking operation is already running.');
       changing = true;
       try { await domain({ ...input, target }, target); }
