@@ -23,7 +23,8 @@ const sessionAge = 12 * 60 * 60 * 1000;
 const usernameValid = value => typeof value === 'string' && /^[a-zA-Z0-9_.-]{3,40}$/.test(value);
 
 export async function start({ home = process.env.PHONECLOUD_HOME || join(homedir(), '.phonecloud', 'data'),
-  port = Number(process.env.PHONECLOUD_PORT || 8765), publicPort = Number(process.env.PHONECLOUD_PUBLIC_PORT || 8766), interval } = {}) {
+  port = Number(process.env.PHONECLOUD_PORT || 8765), publicPort = Number(process.env.PHONECLOUD_PUBLIC_PORT || 8766),
+  lanPort = Number(process.env.PHONECLOUD_LAN_PORT || 8767), interval } = {}) {
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('Invalid dashboard port.');
   if (process.platform !== 'win32') process.umask(0o077);
   const store = openStore(home);
@@ -39,7 +40,7 @@ export async function start({ home = process.env.PHONECLOUD_HOME || join(homedir
   const monitor = monitoring(store, interval);
   const hosting = projects(store);
   const documents = documentService(store);
-  const network = tunnels(store, hosting, documents, monitor, publicPort);
+  const network = tunnels(store, hosting, documents, monitor, publicPort, lanPort);
   const backups = backupJobs(store);
   const schedule = setInterval(async () => {
     const settings = store.get('backupSchedule');
@@ -153,7 +154,11 @@ export async function start({ home = process.env.PHONECLOUD_HOME || join(homedir
         if (!id && method === 'GET') return json(res, hosting.list());
         if (!id && method === 'POST') return json(res, hosting.create(await jsonBody(req)), 201);
         if (!operation && method === 'PUT') return json(res, hosting.update(id, await jsonBody(req)));
-        if (!operation && method === 'DELETE') { hosting.remove(id); return json(res, { ok: true }); }
+        if (!operation && method === 'DELETE') {
+          hosting.remove(id);
+          await network.removeSharedProject(id);
+          return json(res, { ok: true });
+        }
         if (operation === 'releases' && method === 'GET') return json(res, hosting.history(id));
         if (operation === 'logs' && method === 'GET') return json(res, { log: hosting.logs(id, url.searchParams.get('kind') || 'runtime') });
         if (operation === 'files' && method === 'POST') return json(res, hosting.files(id, await jsonBody(req, 3 * 1024 * 1024)));

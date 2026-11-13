@@ -297,6 +297,16 @@ export async function renderCloud(view, api, notice) {
       const databases = view === 'domains' ? await api('databases') : [];
       if (view === 'networking') {
         add(panel(html('h2', 'Local gateway'), note(net.origin), note('Install cloudflared in Termux to use tunnels. The dashboard stays on its separate loopback port.')));
+        const shared = projects.find(project => project.id === net.lan.project);
+        add(panel(html('h2', 'Same Wi-Fi'),
+          note('Share one application with devices on this local network. Anyone on the network can open it over HTTP.'),
+          ...(net.lan.url && shared ? [tools(link('Open ' + shared.name, net.lan.url)), note('Share this URL: ' + net.lan.url)] : []),
+          ...(net.lan.error ? [note(net.lan.error)] : []),
+          ...(projects.length ? [form('Share on Wi-Fi', [field('Application', select('project', rows(projects), net.lan.project))],
+            async values => { await api('networking/lan', values); await reload(); })] : [note('Create and deploy an application to share it.')]),
+          tools(button('Refresh Wi-Fi status', reload), ...(net.lan.project ? [button('Stop Wi-Fi sharing', async () => {
+            await api('networking/lan', { project: null }); await reload();
+          })] : []))));
         const controls = html('div');
         add(panel(html('h2', 'Named tunnel'), net.id ? note(net.id + (net.namedRunning ? ' · connector running' : ' · connector stopped')) :
           form('Connect Cloudflare', [field('Account ID', input('account')), field('Scoped API token', input('apiToken', '', 'password')),

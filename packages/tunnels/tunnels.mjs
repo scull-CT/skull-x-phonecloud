@@ -6,12 +6,14 @@ import { HttpError } from '../core/store.mjs';
 import { json, jsonBody } from '../core/http.mjs';
 import { createHmac } from 'node:crypto';
 import { equal, seal, token, unseal } from '../security/security.mjs';
+import { lanGateway } from './lan.mjs';
 
 const hostnamePattern = /^(?=.{4,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 const uuidPattern = /^[a-f0-9-]{36}$/;
 const hexId = /^[a-f0-9]{32}$/;
 
-export function tunnels(store, projects, documents, monitor, port = 8766) {
+export function tunnels(store, projects, documents, monitor, port = 8766, lanPort = 8767) {
+  const lan = lanGateway(store, projects, proxy, monitor, lanPort);
   let quick;
   let named;
   let quickUrl;
@@ -24,7 +26,7 @@ export function tunnels(store, projects, documents, monitor, port = 8766) {
   const credentials = () => unseal(store.key, store.get('cloudflare'));
   function config() {
     const { account, id, zone } = credentials();
-    return { origin, domains: domainMap(), account, id, zone, namedRunning: Boolean(named), quickUrl: quickUrl || null, quickRunning: Boolean(quick), quickStatus };
+    return { origin, lan: lan.config(), domains: domainMap(), account, id, zone, namedRunning: Boolean(named), quickUrl: quickUrl || null, quickRunning: Boolean(quick), quickStatus };
   }
   function launch(args, env, handle) {
     const child = spawn('cloudflared', args, { env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
@@ -226,12 +228,16 @@ export function tunnels(store, projects, documents, monitor, port = 8766) {
   });
   return {
     config,
+    async removeSharedProject(id) {
+      if (lan.config().project === id) await lan.set(null);
+    },
     async listen() {
       await new Promise((resolve, reject) => {
         server.once('error', reject);
         server.listen(port, '127.0.0.1', resolve);
       });
       origin = 'http://127.0.0.1:' + server.address().port;
+      await lan.refresh();
       runNamed();
     },
     async admin(parts, req, res, params) {
@@ -245,6 +251,10 @@ export function tunnels(store, projects, documents, monitor, port = 8766) {
       }
       if (req.method !== 'POST') throw new HttpError(404, 'Networking operation not found.');
       const input = await jsonBody(req);
+      if (parts[0] === 'lan') {
+        await lan.set(input.project);
+        return json(res, config());
+      }
       if (changing) throw new HttpError(409, 'A networking operation is already running.');
       changing = true;
       try {
@@ -285,6 +295,7 @@ export function tunnels(store, projects, documents, monitor, port = 8766) {
       clearTimeout(reconnect);
       named?.kill();
       quick?.kill();
+      await lan.close();
       if (server.listening) await new Promise(resolve => {
         server.close(resolve);
         server.closeAllConnections();

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { tmpdir, networkInterfaces } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createHmac } from 'node:crypto';
@@ -21,7 +21,7 @@ async function api(origin, path, method, body, extra) {
 async function fixture(t) {
   const parent = mkdtempSync(join(tmpdir(), 'phonecloud-test-'));
   const home = join(parent, 'data');
-  const options = { home, port: 0, publicPort: 0, interval: 50 };
+  const options = { home, port: 0, publicPort: 0, lanPort: 0, interval: 50 };
   let app = await start(options);
   t.after(async () => { if (app) await app.close(); rmSync(parent, { recursive: true, force: true }); });
   const code = readFileSync(join(home, 'setup-code'), 'utf8').trim();
@@ -153,6 +153,27 @@ test('webhook rejects forged requests and validates the branch of signed pushes'
   const valid = await api(f.app.publicOrigin, webhook, 'POST', body, { 'X-GitHub-Event': 'push', 'X-Hub-Signature-256': signature });
   assert.equal(valid.status, 200);
   assert.equal(valid.data.skipped, true);
+});
+
+test('Wi-Fi sharing serves the selected app at its root and can be disabled', async t => {
+  if (!Object.values(networkInterfaces()).flat().some(item => item.family === 'IPv4' && !item.internal &&
+      /^(?:10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/.test(item.address))) return t.skip('No private IPv4 interface');
+  const f = await fixture(t);
+  const call = await f.authenticate();
+  const project = (await call('projects', 'POST', { name: 'Wi-Fi sample', type: 'node', health: '/healthz' })).data;
+  const path = 'projects/' + project.id;
+  await call(path + '/files', 'POST', { action: 'write', path: 'server.mjs', content: sample });
+  await call(path + '/action', 'POST', { action: 'deploy' });
+  await until(async () => (await call('projects')).data[0].running);
+  assert.equal((await api(f.app.origin, '/api/networking/lan', 'POST', { project: project.id })).status, 401);
+  const result = await call('networking/lan', 'POST', { project: project.id });
+  assert.equal(result.status, 200);
+  assert.ok(result.data.lan.url, result.data.lan.error);
+  const url = result.data.lan.url;
+  assert.match(await (await fetch(url)).text(), /Running on Skull X PhoneCloud/);
+  assert.deepEqual(await (await fetch(url + '/healthz')).json(), { healthy: true });
+  assert.equal((await call('networking/lan', 'POST', { project: null })).data.lan.url, null);
+  await assert.rejects(fetch(url, { signal: AbortSignal.timeout(2000) }));
 });
 
 test('document permissions, validation, two realtime clients, filtered CRUD and encrypted restore', async t => {

@@ -31,6 +31,8 @@ Use Node.js 24 or newer. Run `npm test` and `npm start`. The setup code is in `~
 5. For public HTTPS, follow the [Cloudflare setup](docs/operations.md). Keep the dashboard on loopback.
 6. In **Backups**, create an encrypted snapshot. Download it off the phone and keep its passphrase separately. See [restore instructions](docs/operations.md).
 
+To share a deployed website on your Wi-Fi, open **Networking → Same Wi-Fi**, choose the app and select **Share on Wi-Fi**. Open the displayed phone IP and port from another device on the same network. This uses local HTTP and works without Cloudflare. Keep sharing off on networks you don't trust.
+
 ## Support matrix
 
 | Capability | Status |

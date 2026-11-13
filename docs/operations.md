@@ -26,6 +26,10 @@ For a public GitHub sample use `https://github.com/render-examples/express-hello
 
 GitHub push webhooks use JSON at `https://YOUR_PUBLIC_HOST/hooks/PROJECT_ID`. Create a webhook secret in Projects and enter it in GitHub. The handler validates the [HMAC signature](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries), repository and branch. A build already in progress can reject a delivery. Redeliver failed events from GitHub.
 
+## Same Wi-Fi
+
+For devices on the same Wi-Fi, use **Networking → Same Wi-Fi**. The selected app opens at the root of the phone's private IPv4 address on port 8767, so its normal asset and API paths work. Anyone on the same subnet can open it over HTTP. Guest Wi-Fi or client isolation can block traffic between devices. Refresh the panel for the new URL if the phone's IP changes. The management dashboard remains on loopback port 8765.
+
 ## Cloudflare
 
 1. Run `pkg install cloudflared` in Termux. For a temporary test select a running app in **Networking**, start a Quick Tunnel and refresh until the URL appears. These URLs are public and temporary. [Cloudflare Quick Tunnels](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/)
