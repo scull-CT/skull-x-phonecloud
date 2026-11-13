@@ -10,6 +10,7 @@ import { monitoring } from '../../packages/monitoring/monitoring.mjs';
 import { projects } from '../../packages/deployments/projects.mjs';
 import { documentService } from '../../packages/database/documents.mjs';
 import { tunnels } from '../../packages/tunnels/tunnels.mjs';
+import { lanListener } from '../../packages/tunnels/lan.mjs';
 import { backupJobs, restoreBackup } from '../../packages/core/backups.mjs';
 
 const dashboard = new URL('../dashboard/', import.meta.url);
@@ -25,7 +26,9 @@ const usernameValid = value => typeof value === 'string' && /^[a-zA-Z0-9_.-]{3,4
 
 export async function start({ home = process.env.PHONECLOUD_HOME || join(homedir(), '.phonecloud', 'data'),
   port = Number(process.env.PHONECLOUD_PORT || 8765), publicPort = Number(process.env.PHONECLOUD_PUBLIC_PORT || 8766),
-  lanPort = Number(process.env.PHONECLOUD_LAN_PORT || 8767), interval } = {}) {
+  lanPort = Number(process.env.PHONECLOUD_LAN_PORT || 8767),
+  lanAdmin = process.env.PHONECLOUD_LAN_ADMIN === undefined ? process.platform === 'android' : process.env.PHONECLOUD_LAN_ADMIN === '1',
+  interval } = {}) {
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('Invalid dashboard port.');
   if (process.platform !== 'win32') process.umask(0o077);
   const store = openStore(home);
@@ -53,7 +56,6 @@ export async function start({ home = process.env.PHONECLOUD_HOME || join(homedir
   schedule.unref();
   const authLimit = rateLimiter(6, 60000);
   const requestsLimit = rateLimiter(240, 60000);
-  let origin;
   function session(req) {
     const id = req.headers.cookie?.match(/(?:^|;\s*)phonecloud=([\w-]{43})(?:;|$)/)?.[1];
     return id && store.db.prepare('SELECT * FROM sessions WHERE token=? AND expires>?').get(digest(id), Date.now());
@@ -66,7 +68,7 @@ export async function start({ home = process.env.PHONECLOUD_HOME || join(homedir
     res.setHeader('Set-Cookie', `phonecloud=${id}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${sessionAge / 1000}`);
     return csrf;
   }
-  const server = createServer({ requestTimeout: 20000, headersTimeout: 10000 }, async (req, res) => {
+  async function dashboardRequest(req, res, origin, viaLan = false) {
     const began = performance.now();
     res.on('finish', () => monitor.record(res.statusCode, performance.now() - began));
     res.setHeader('Cache-Control', 'no-store');
@@ -80,7 +82,7 @@ export async function start({ home = process.env.PHONECLOUD_HOME || join(homedir
       if (url.origin !== origin) throw new HttpError(400, 'Invalid request target.');
       const method = req.method;
       const path = url.pathname;
-      if (method === 'GET' && path === '/healthz') return json(res, { status: 'ok' });
+      if (method === 'GET' && path === '/healthz') return json(res, viaLan ? { status: 'ok' } : { status: 'ok', lanUrl: adminLan?.config().url ?? null });
       if (method === 'GET' && assets.has(path)) {
         const [file, type] = assets.get(path);
         res.writeHead(200, { 'Content-Type': type });
@@ -92,6 +94,7 @@ export async function start({ home = process.env.PHONECLOUD_HOME || join(homedir
       if (method === 'GET' && path === '/api/session') return json(res, { setup: !admin, user: current ? admin.username : null, csrf: current?.csrf });
       if (!['GET', 'HEAD'].includes(method) && req.headers.origin !== origin) throw new HttpError(403, 'Origin check failed.');
       if (method === 'POST' && path === '/api/setup') {
+        if (viaLan) throw new HttpError(403, 'Create the first administrator from the phone browser.');
         if (admin) throw new HttpError(409, 'Admin setup is complete.');
         authLimit('setup');
         const input = await jsonBody(req, 4096);
@@ -223,7 +226,10 @@ export async function start({ home = process.env.PHONECLOUD_HOME || join(homedir
       if (!(error instanceof HttpError)) console.error('Request failed:', error.code || error.name);
       json(res, { error: error instanceof HttpError ? error.message : 'The operation failed. Check service logs.' }, error instanceof HttpError ? error.status : 500);
     }
-  });
+  }
+  let origin;
+  let adminLan;
+  const server = createServer({ requestTimeout: 20000, headersTimeout: 10000 }, (req, res) => dashboardRequest(req, res, origin));
   try {
     await network.listen();
     await new Promise((resolve, reject) => {
@@ -239,13 +245,16 @@ export async function start({ home = process.env.PHONECLOUD_HOME || join(homedir
     throw error;
   }
   origin = `http://127.0.0.1:${server.address().port}`;
+  adminLan = lanListener(server.address().port, () => lanAdmin, (req, res, lanOrigin) => dashboardRequest(req, res, lanOrigin, true));
+  await adminLan.refresh();
   hosting.resume();
   return {
-    origin, store, monitor, publicOrigin: network.config().origin,
+    origin, store, monitor, publicOrigin: network.config().origin, lanAdminUrl: () => adminLan.config().url,
     async close() {
       clearInterval(schedule);
       monitor.close();
       documents.disconnect();
+      await adminLan.close();
       await network.close();
       await new Promise(resolve => server.close(resolve));
       await hosting.close();
@@ -259,5 +268,6 @@ export async function start({ home = process.env.PHONECLOUD_HOME || join(homedir
 if (process.argv[1] && fileURLToPath(import.meta.url) === realpathSync(process.argv[1])) {
   const app = await start();
   console.log(`Skull X PhoneCloud ready at ${app.origin}`);
+  if (app.lanAdminUrl()) console.log(`Wi-Fi dashboard: ${app.lanAdminUrl()}`);
   for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => { void app.close().then(() => process.exit(0)); });
 }

@@ -15,15 +15,14 @@ function localInterface() {
   return null;
 }
 
-export function lanGateway(store, projects, proxy, monitor, port, getInterface = localInterface) {
+export function lanListener(port, enabled, handle, getInterface = localInterface) {
   let listener;
   let address;
   let cidr;
   let error = null;
   let pending = Promise.resolve();
   let closed = false;
-  const target = () => store.get('lanProject');
-  const config = () => ({ project: target(), url: listener ? `http://${address}:${listener.address().port}` : null, error });
+  const config = () => ({ url: listener ? `http://${address}:${listener.address().port}` : null, error });
 
   async function stop() {
     if (!listener) return;
@@ -37,19 +36,17 @@ export function lanGateway(store, projects, proxy, monitor, port, getInterface =
 
   function refresh() {
     pending = pending.then(async () => {
-      const network = !closed && target() && getInterface();
+      const network = !closed && enabled() && getInterface();
       if (network && network.cidr === cidr && listener) return;
       await stop();
       error = null;
       if (!network) {
-        if (!closed && target()) error = 'Connect the phone to Wi-Fi to get a local URL.';
+        if (!closed && enabled()) error = 'Connect the phone to Wi-Fi to get a local URL.';
         return;
       }
       const subnet = new BlockList();
       subnet.addSubnet(network.address, Number(network.cidr.split('/')[1]), 'ipv4');
       const server = createServer({ requestTimeout: 20000, headersTimeout: 10000 }, (req, res) => {
-        const started = performance.now();
-        res.on('finish', () => monitor.record(res.statusCode, performance.now() - started, true));
         res.setHeader('X-Content-Type-Options', 'nosniff');
         try {
           const expected = `${network.address}:${server.address()?.port}`;
@@ -60,9 +57,7 @@ export function lanGateway(store, projects, proxy, monitor, port, getInterface =
           const base = 'http://' + expected;
           const url = new URL(req.url, base);
           if (url.origin !== base) throw new HttpError(400, 'Invalid request target.');
-          const id = target();
-          if (!id) throw new HttpError(404, 'Wi-Fi sharing is off.');
-          return proxy(id, req, res, url);
+          return handle(req, res, base, url);
         } catch (cause) {
           if (res.headersSent) return res.destroy();
           return json(res, { error: cause instanceof HttpError ? cause.message : 'Application request failed.' }, cause instanceof HttpError ? cause.status : 500);
@@ -84,18 +79,32 @@ export function lanGateway(store, projects, proxy, monitor, port, getInterface =
   timer.unref();
   return {
     config, refresh,
+    async close() {
+      closed = true;
+      clearInterval(timer);
+      await refresh();
+    }
+  };
+}
+
+export function lanGateway(store, projects, proxy, monitor, port) {
+  const target = () => store.get('lanProject');
+  const listener = lanListener(port, target, (req, res, _origin, url) => {
+    const started = performance.now();
+    res.on('finish', () => monitor.record(res.statusCode, performance.now() - started, true));
+    const id = target();
+    if (!id) throw new HttpError(404, 'Wi-Fi sharing is off.');
+    return proxy(id, req, res, url);
+  });
+  return {
+    ...listener,
+    config: () => ({ project: target(), ...listener.config() }),
     async set(id) {
       if (id !== null && (typeof id !== 'string' || !/^[a-f0-9-]{36}$/.test(id))) throw new HttpError(400, 'Choose a project.');
       if (id !== null) projects.get(id);
       store.set('lanProject', id);
       store.audit(id ? 'Wi-Fi sharing enabled for project ' + id : 'Wi-Fi sharing disabled');
-      await refresh();
-      return config();
-    },
-    async close() {
-      closed = true;
-      clearInterval(timer);
-      await refresh();
+      await listener.refresh();
     }
   };
 }

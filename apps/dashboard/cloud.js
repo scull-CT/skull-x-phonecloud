@@ -502,7 +502,7 @@ export async function renderCloud(view, api, notice) {
       const projects = await api('projects');
       const databases = view === 'domains' ? await api('databases') : [];
       if (view === 'networking') {
-        add(panel(html('h2', 'Local gateway'), note(net.origin), note('Install cloudflared in Termux to use tunnels. The dashboard stays on its separate loopback port.')));
+        add(panel(html('h2', 'Local gateway'), note(net.origin), note('Install cloudflared in Termux to use tunnels. The dashboard uses a separate port.')));
         const shared = projects.find(project => project.id === net.lan.project);
         add(panel(html('h2', 'Same Wi-Fi'),
           note('Share one application with devices on this local network. Anyone on the network can open it over HTTP.'),

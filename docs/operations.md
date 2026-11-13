@@ -16,7 +16,7 @@
 | `phonecloud restore FILE --apply` | Stops the manager and replaces its active data directory. Preserves the previous directory alongside it. Run `phonecloud start` afterward. |
 | `phonecloud uninstall --yes` | Removes service entry scripts and the CLI. Data, logs, releases and Termux packages remain available. |
 
-The installed service binds `127.0.0.1:8765` for administration and `127.0.0.1:8766` for the public gateway. If either is occupied, stop the conflicting listener before retrying. Consult `phonecloud logs` and `phonecloud doctor`. For package mirror errors, check the connection and use `termux-change-repo` before retrying. Low-space installs require at least 512 MiB available, and several data operations enforce additional free-space checks.
+The installed service binds `127.0.0.1:8765` for administration and `127.0.0.1:8766` for the public gateway. On Android it also serves the dashboard on the phone's private Wi-Fi address on port 8765. Run `phonecloud status` to find that address. Use it on a trusted network and sign in with your admin account. First-time account setup uses the phone's loopback address. Set `PHONECLOUD_LAN_ADMIN=0` in the server environment to disable Wi-Fi dashboard access. If a required local port is occupied, stop the conflicting listener before retrying. Consult `phonecloud logs` and `phonecloud doctor`. For package mirror errors, check the connection and use `termux-change-repo` before retrying. Low-space installs require at least 512 MiB available.
 
 ## Application deployment
 
@@ -28,7 +28,7 @@ GitHub push webhooks use JSON at `https://YOUR_PUBLIC_HOST/hooks/PROJECT_ID`. Cr
 
 ## Same Wi-Fi
 
-For devices on the same Wi-Fi, use **Networking → Same Wi-Fi**. The selected app opens at the root of the phone's private IPv4 address on port 8767, so its normal asset and API paths work. Anyone on the same subnet can open it over HTTP. Guest Wi-Fi or client isolation can block traffic between devices. Refresh the panel for the new URL if the phone's IP changes. The management dashboard remains on loopback port 8765.
+For devices on the same Wi-Fi, use **Networking → Same Wi-Fi**. The selected app opens at the root of the phone's private IPv4 address on port 8767, so its normal asset and API paths work. Anyone on the same subnet can open it over HTTP. Guest Wi-Fi or client isolation can block traffic between devices. Refresh the panel for the new URL if the phone's IP changes. The authenticated dashboard uses port 8765.
 
 ## Cloudflare
 

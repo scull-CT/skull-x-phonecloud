@@ -15,7 +15,7 @@ The [official Termux ARM64 package index](https://packages.termux.dev/apt/termux
 
 ## Boundaries
 
-The dashboard listens on loopback only. Public application traffic uses a separate listener. The Android app sandbox protects Termux from other Android apps. All PhoneCloud workloads inside Termux share its UID and can access its files and other processes. Host only code and build dependencies you trust. Container isolation and enforceable per-project memory ceilings are outside this architecture.
+The dashboard listens on loopback and, by default on Android, on the private Wi-Fi interface for authenticated same-subnet administration. Public application traffic uses a separate listener. The Android app sandbox protects Termux from other Android apps. All PhoneCloud workloads inside Termux share its UID and can access its files and other processes. Host only code and build dependencies you trust. Container isolation and enforceable per-project memory ceilings are outside this architecture.
 
 Android may block device CPU counters, thermal sensors, or [network interface statistics](https://github.com/termux/termux-packages/wiki/Termux-file-system-layout). The collector returns null for inaccessible counters. Battery data uses optional Termux:API. [Doze](https://developer.android.com/training/monitoring-device-state/doze-standby), vendor background policies and Android child-process limits can suspend or kill Termux. A wake lock and battery exemption improve availability where allowed. A phone cannot provide guaranteed 24/7 service.
 

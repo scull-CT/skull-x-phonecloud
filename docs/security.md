@@ -1,6 +1,6 @@
 # Security and limits
 
-- Keep the dashboard on the phone's loopback address. The separate gateway is the only supported Tunnel target. Local HTTP is intentional for loopback. Sessions use HttpOnly and SameSite=Strict cookies with exact Host and Origin validation and per-session CSRF tokens. Do not map the management port to a public hostname.
+- The dashboard uses local HTTP on loopback and, by default on Android, on a private Wi-Fi interface restricted to its subnet. Use a trusted Wi-Fi network because credentials and session traffic are unencrypted. Initial admin setup requires loopback. Sessions use HttpOnly and SameSite=Strict cookies with exact Host and Origin validation and per-session CSRF tokens. Only the separate public gateway supports Cloudflare Tunnel.
 - Setup uses a high-entropy single-use code stored in a private file. Passwords use scrypt with per-password salts. Session and database tokens are stored by hash. Project secrets and Cloudflare credentials use AES-256-GCM under the installation key.
 - The administrator controls all workloads. Each workload can access anything the Termux UID can access, including the installation key and manager files. Use trusted projects and dependencies. PhoneCloud has no container, hostile tenant or malicious application isolation.
 - Applications should bind the provided `HOST` and `PORT`. Use the dashboard's `localhost` app links for local previews. Browsers scope cookies by host, independent of port. Keep apps off the dashboard host wherever possible.

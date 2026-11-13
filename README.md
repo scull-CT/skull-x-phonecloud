@@ -16,6 +16,8 @@ Run a personal application server and realtime SQLite service on an Android ARM6
 3. On the same phone, open [the local dashboard](http://127.0.0.1:8765). Enter the displayed one-time code and choose an admin username and a password of at least 14 characters. Recover a pending code with `phonecloud setup-code`.
 4. For startup after reboot, install Termux:Boot from the same source as Termux, open it once, then run `phonecloud boot enable`. Follow the [Android validation checklist](docs/android-validation.md).
 
+On the same trusted Wi-Fi, open the **Dashboard on the same Wi-Fi** address printed by `phonecloud status` and sign in. On Android this is enabled by default on port 8765 and uses local HTTP.
+
 To install from a local checkout, place the source in Termux's private home and run `bash install.sh` from the checkout directory.
 
 **Desktop development**
@@ -28,7 +30,7 @@ Use Node.js 24 or newer. Run `npm test` and `npm start`. The setup code is in `~
 2. Open that project and use its **Files** tab to upload [examples/node/server.mjs](examples/node/server.mjs) to the source area as `server.mjs`.
 3. Choose **Deploy**. Refresh the project's **Deployments** tab until the release is ready, then open the app from **Overview**. Use **Settings** for runtime configuration and **Custom domain** to manage that project's hostnames. For GitHub import, enter an HTTPS repository URL and branch instead of uploading the source.
 4. In **Databases**, choose **New database** or open an existing one. **Data** shows the live JSON tree. **Rules** manages client access, **Usage** shows request counts and storage, **API** issues keys, and **Custom domain** maps an HTTPS hostname to the database. New databases require a scoped API key for client reads and writes. See the [database API](docs/database-api.md) for examples.
-5. For public HTTPS, follow the [Cloudflare setup](docs/operations.md). Keep the dashboard on loopback.
+5. For public HTTPS, follow the [Cloudflare setup](docs/operations.md) for apps and databases.
 6. In **Backups**, create an encrypted snapshot. Download it off the phone and keep its passphrase separately. See [restore instructions](docs/operations.md).
 
 To share a deployed website on your Wi-Fi, open **Networking → Same Wi-Fi**, choose the app and select **Share on Wi-Fi**. Open the displayed phone IP and port from another device on the same network. This uses local HTTP and works without Cloudflare. Keep sharing off on networks you don't trust.

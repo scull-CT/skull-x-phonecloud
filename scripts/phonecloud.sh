@@ -22,11 +22,12 @@ supervise() {
   fail 'Termux service supervisor is unavailable. Open a new Termux session and retry.'
 }
 wait_health() {
-  local status
+  local status health
   for ((i=0;i<40;i++)); do
     status=$("$PREFIX/bin/sv" status "$service" 2>/dev/null || :)
-    if [[ "$status" == run:* ]] && curl --noproxy '*' --max-time 1 -fs "$url/healthz" | grep -q '"status":"ok"'; then
+    if [[ "$status" == run:* ]] && health=$(curl --noproxy '*' --max-time 1 -fs "$url/healthz") && [[ "$health" == *'"status":"ok"'* ]]; then
       printf 'Dashboard: %s\n' "$url"
+      show_wifi_url "$health"
       return 0
     fi
     sleep .25
@@ -34,11 +35,22 @@ wait_health() {
   printf 'Dashboard did not become healthy. See phonecloud logs.\n' >&2
   return 1
 }
+show_wifi_url() {
+  if [[ "$1" =~ \"lanUrl\":\"(http://[0-9.]+:[0-9]+)\" ]]; then
+    printf 'Dashboard on the same Wi-Fi: %s\n' "${BASH_REMATCH[1]}"
+  fi
+}
 no_extra() { [[ "$#" == 0 ]] || fail 'Unexpected command arguments. Run phonecloud help.'; }
 command="${1:-help}"
 if [[ "$#" -gt 0 ]]; then shift; fi
 case "$command" in
-  status) no_extra "$@"; "$PREFIX/bin/sv" status "$service"; curl --noproxy '*' --max-time 2 -fsS "$url/healthz"; printf '\n' ;;
+  status)
+    no_extra "$@"
+    "$PREFIX/bin/sv" status "$service"
+    health=$(curl --noproxy '*' --max-time 2 -fsS "$url/healthz")
+    printf '%s\n' "$health"
+    show_wifi_url "$health"
+    ;;
   start|restart)
     no_extra "$@"
     supervise

@@ -19,10 +19,10 @@ async function api(origin, path, method, body, extra) {
   return { status: response.status, headers: response.headers, data: await response.json() };
 }
 
-async function fixture(t) {
+async function fixture(t, overrides = {}) {
   const parent = mkdtempSync(join(tmpdir(), 'phonecloud-test-'));
   const home = join(parent, 'data');
-  const options = { home, port: 0, publicPort: 0, lanPort: 0, interval: 50 };
+  const options = { home, port: 0, publicPort: 0, lanPort: 0, interval: 50, lanAdmin: false, ...overrides };
   let app = await start(options);
   t.after(async () => { if (app) await app.close(); rmSync(parent, { recursive: true, force: true, maxRetries: 5 }); });
   const code = readFileSync(join(home, 'setup-code'), 'utf8').trim();
@@ -39,6 +39,24 @@ async function fixture(t) {
     }
   };
 }
+
+test('same-network dashboard keeps setup local and requires a session and CSRF', async t => {
+  const f = await fixture(t, { lanAdmin: true });
+  const lan = f.app.lanAdminUrl();
+  if (!lan) return t.skip('No private IPv4 interface');
+  assert.equal((await api(f.app.origin, '/healthz', 'GET')).data.lanUrl, lan);
+  assert.equal((await fetch(lan)).status, 200);
+  assert.equal((await api(lan, '/api/overview', 'GET')).status, 401);
+  assert.equal((await api(lan, '/api/setup', 'POST', { ...setup, code: f.code })).status, 403);
+  await f.authenticate();
+  assert.equal((await api(lan, '/api/login', 'POST', setup, { Origin: f.app.origin })).status, 403);
+  const login = await api(lan, '/api/login', 'POST', setup);
+  assert.equal(login.status, 200);
+  const Cookie = login.headers.get('set-cookie').split(';')[0];
+  assert.equal((await api(lan, '/api/overview', 'GET', undefined, { Cookie })).status, 200);
+  assert.equal((await api(lan, '/api/logout', 'POST', {}, { Cookie })).status, 403);
+  assert.equal((await api(lan, '/api/logout', 'POST', {}, { Cookie, 'X-CSRF-Token': login.data.csrf })).status, 200);
+});
 
 async function until(fn) {
   for (let attempt = 0; attempt < 100; attempt++) {
